@@ -5,14 +5,8 @@ This simple baseline consits of a CNN with two convolutional+pooling layers with
 
 import os
 import sys
-import numpy as np
 import matplotlib.image as mpimg
 from PIL import Image
-
-import util.prediction as util
-import code
-
-import tensorflow.python.platform
 
 import numpy
 import tensorflow as tf
@@ -41,6 +35,7 @@ FLAGS = tf.app.flags.FLAGS
 # CONSTANTS
 
 TEST_DATA_PATH = 'data/test_images/'
+
 
 # Extract patches from a given image
 def img_crop(im, w, h):
@@ -141,6 +136,20 @@ def print_predictions(predictions, labels):
     max_labels = numpy.argmax(labels, 1)
     max_predictions = numpy.argmax(predictions, 1)
     print(str(max_labels) + ' ' + str(max_predictions))
+
+
+def label_to_img_inverse(imgwidth, imgheight, w, h, labels):
+    array_labels = numpy.zeros([imgwidth, imgheight])
+    idx = 0
+    for i in range(0, imgheight, h):
+        for j in range(0, imgwidth, w):
+            if labels[idx][0] > 0.5:
+                l = 0
+            else:
+                l = 1
+            array_labels[j:j + w, i:i + h] = l
+            idx = idx + 1
+    return array_labels
 
 
 # Convert array of labels to an image
@@ -299,7 +308,9 @@ def main(argv=None):  # pylint: disable=unused-argument
         data_node = tf.constant(data)
         output = tf.nn.softmax(model(data_node))
         output_prediction = sess.run(output)
-        img_prediction = label_to_img(img.shape[0], img.shape[1], IMG_PATCH_SIZE, IMG_PATCH_SIZE, output_prediction)
+        # img_prediction = label_to_img(img.shape[0], img.shape[1], IMG_PATCH_SIZE, IMG_PATCH_SIZE, output_prediction)
+        img_prediction = label_to_img_inverse(img.shape[0], img.shape[1], IMG_PATCH_SIZE, IMG_PATCH_SIZE,
+                                              output_prediction)
 
         return img_prediction
 
@@ -309,7 +320,6 @@ def main(argv=None):  # pylint: disable=unused-argument
         img_prediction = get_prediction(img)
 
         img_prediction = img_float_to_uint8(img_prediction)
-        img_prediction = np.invert(img_prediction)
         return img_prediction
 
     # Get a concatenation of the prediction and groundtruth for given input file
@@ -528,10 +538,6 @@ def main(argv=None):  # pylint: disable=unused-argument
         #
         #     oimg = get_prediction_with_overlay(train_data_filename, i)
         #     oimg.save(prediction_training_dir + "overlay_" + str(i) + ".png")
-        #
-        #     mask = get_prediction_single_mask(train_data_filename, i)
-        #     Image.fromarray(mask).save(prediction_training_dir + "mask_" + str(i) + ".png")
-        #
 
         print("Running prediction on test set")
         prediction_test_dir = "predictions_test/"
@@ -542,7 +548,6 @@ def main(argv=None):  # pylint: disable=unused-argument
             print(TEST_DATA_PATH + filename)
             mask = get_prediction_single_mask(TEST_DATA_PATH + filename)
             Image.fromarray(mask).save(prediction_test_dir + "mask_" + filename)
-
 
 
 if __name__ == '__main__':
