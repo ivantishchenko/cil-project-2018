@@ -8,3 +8,6 @@ predictions_training
 submissions
 
 __pycache__/
+
+outputs/
+MNIST-data/
