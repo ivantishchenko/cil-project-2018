@@ -1,0 +1,1 @@
+bsub -W 60 -n2 -R rusage[mem=5120,ngpus_excl_p=1] "module load gcc/6.3.0 python_gpu/3.6.4 && python3 tf_aerial_images_ivan.py"
