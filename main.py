@@ -145,12 +145,11 @@ def main(unused_argv):
         num_epochs=1,
         shuffle=False)
 
+    res = []
     predictions = road_estimator.predict(input_fn=predict_input_fn)
+    for p in predictions:
+        res.append(p['probabilities'])
 
-    with open('out.txt', 'w') as the_file:
-        for res in predictions:
-            # print(res['probabilities'])
-            the_file.write(str(res['probabilities']) + '\n')
 
 
 if __name__ == "__main__":
