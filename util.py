@@ -4,6 +4,12 @@ import numpy
 
 import constansts
 
+def one_hot_to_num(lbl):
+    return numpy.argmax(lbl, axis=1)
+
+def channel_first(tensor):
+    return numpy.rollaxis(tensor, 3, 1)
+
 '''
 TRAIN DATA
 '''
