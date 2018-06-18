@@ -1,3 +1,4 @@
+
 import gzip
 import os
 import sys
@@ -24,17 +25,16 @@ import numpy
 import tensorflow as tf
 
 
-NUM_CHANNELS = 3 # RGB images
+NUM_CHANNELS = 3
 PIXEL_DEPTH = 255
 NUM_LABELS = 2
 TRAINING_SIZE = 100
 TEST_SIZE = 94
-SEED = 1  # Set to None for random seed.
+SEED = 1
 TRAINING_BATCH_SIZE = 32
 PREDICTION_BATCH_SIZE = 512
-NUM_EPOCHS = 40
-RESTORE_MODEL = False # If True, restore existing model instead of training a new one
-RECORDING_STEP = 1000
+NUM_EPOCHS = 100
+RECORDING_STEP = 100
 
 
 # Set image patch size in pixels
@@ -51,6 +51,7 @@ tf.app.flags.DEFINE_string('train_dir', sys.argv[1],
                            """Directory where to write event logs """
                            """and checkpoint.""")
 FLAGS = tf.app.flags.FLAGS
+tf.logging.set_verbosity(tf.logging.INFO)
 
 # Extract patches from a given image
 def img_crop(im, w, h, frame, oversize):
@@ -78,31 +79,6 @@ def img_crop(im, w, h, frame, oversize):
             list_patches.append(im_patch)
     return list_patches
 
-def contrast_stretch(img):
-
-    res = numpy.zeros(img.shape, dtype=int)
-    byteimg = (255*img).astype(int)
-
-    for i in range(img.shape[2]):
-        converted_channel = numpy.zeros((img.shape[0], img.shape[1]), dtype=int)
-        h = numpy.histogram(byteimg[:,:,i], bins=range(256))
-        cdfmin = h[0][0]
-        cdf = 0        
-
-        for j in range(len(h[0])):
-            cdf = cdf + h[0][j]
-            ids = numpy.where(img[:,:,i] == h[1][j])
-            converted_channel[tuple(ids)] = (cdf-cdfmin)/(img.shape[0]*img.shape[1]-cdfmin) * 255
-
-        res[:,:,i] = converted_channel
-            
-    return res.astype(numpy.float32) / 255
-
-def standardize(img):
-    img -= img.mean()
-    img /= img.std()
-
-    return img
 
 def mirror_and_concat_img(img):
 
@@ -125,9 +101,6 @@ def mirror_and_concat_img(img):
 
 
 def extract_data(filename, num_images):
-    """Extract the images into a 4D tensor [image index, y, x, channels].
-    Values are rescaled from [0, 255] down to [-0.5, 0.5].
-    """
     imgs = []
     for i in range(1, num_images+1):
         imageid = "satImage_%.3d" % i
@@ -154,9 +127,9 @@ def value_to_class(v):
     foreground_threshold = 0.25 # percentage of pixels > 1 required to assign a foreground label to a patch
     df = numpy.sum(v)
     if df > foreground_threshold:
-        return [1, 0]
-    else:
         return [0, 1]
+    else:
+        return [1, 0]
 
 # Extract label images
 def extract_labels(filename, num_images):
@@ -173,7 +146,7 @@ def extract_labels(filename, num_images):
             print ('File ' + image_filename + ' does not exist')
 
     num_images = len(gt_imgs)
-    gt_patches = [img_crop(gt_imgs[i], IMG_PATCH_SIZE, IMG_PATCH_SIZE, IMG_FRAME_SIZE, False) for i in range(num_images)]
+    gt_patches = [img_crop(gt_imgs[i], IMG_PATCH_SIZE, IMG_PATCH_SIZE, 0, False) for i in range(num_images)]
     data = numpy.asarray([gt_patches[i][j] for i in range(len(gt_patches)) for j in range(len(gt_patches[i]))])
     labels = numpy.asarray([value_to_class(numpy.mean(data[i])) for i in range(len(data))])
 
@@ -182,18 +155,12 @@ def extract_labels(filename, num_images):
 
 
 def augment_training_data(data, labels):
-    # img = standardize(img)
-    # img = contrast_stretch(img)
-    # img = denoise_nl_means(img, patch_size=2, patch_distance=2, multichannel=True)
 
     ia.seed(SEED)
     sometimes = lambda aug: iaa.Sometimes(0.5, aug)
 
     seq = iaa.Sequential(
         [
-            iaa.Fliplr(0.5),
-            iaa.Flipud(0.5),
-
             sometimes(iaa.CropAndPad(
                 percent=(-0.05, 0.1),
                 pad_mode="edge",
@@ -238,26 +205,37 @@ def augment_training_data(data, labels):
     )
 
     data8 = numpy.uint8(data*255.0)
-    augmented_data8 = numpy.empty((0, data8.shape[1], data8.shape[2], data8.shape[3]))
-    augmented_labels = numpy.empty((0, 2))
 
-    for s in range(10):
-        augmented_set = seq.augment_images(data8)
-        augmented_data8 = numpy.concatenate((augmented_data8, augmented_set), axis=0)
-        augmented_labels = numpy.concatenate((augmented_labels, labels), axis=0)
+    r0 = numpy.rot90(data8, 1, axes=(1, 2))
+    r1 = numpy.rot90(data8, 2, axes=(1, 2))
+    r2 = numpy.rot90(data8, 3, axes=(1, 2))
 
+    m0 = numpy.flip(data8, 2)
+
+    m0r0 = numpy.rot90(m0, 1, axes=(1, 2))
+    m0r1 = numpy.rot90(m0, 2, axes=(1, 2))
+    m0r2 = numpy.rot90(m0, 3, axes=(1, 2))
+
+    m1 = numpy.flip(data8, 1)
+
+    m1r0 = numpy.rot90(m1, 1, axes=(1, 2))
+    m1r1 = numpy.rot90(m1, 2, axes=(1, 2))
+    m1r2 = numpy.rot90(m1, 3, axes=(1, 2))
+
+    rotated_and_mirrored = numpy.concatenate((data8, r0, r1, r2, m0, m0r0, m0r1, m0r2, m1, m1r0, m1r1, m1r2), axis=0)
+    augmented_data8 = rotated_and_mirrored
+    augmented_labels = numpy.tile(labels, (12,1))
+
+
+    #for s in range(3):
+    #    augmented_set = seq.augment_images(rotated_and_mirrored)
+    #    augmented_data8 = numpy.concatenate((augmented_data8, augmented_set), axis=0)
+    #    augmented_labels = numpy.concatenate((augmented_labels, labels), axis=0)
 
     augmented_data = numpy.float32(augmented_data8) / 255.0
 
     return augmented_data, augmented_labels
 
-
-def error_rate(predictions, labels):
-    """Return the error rate based on dense predictions and 1-hot labels."""
-    return 100.0 - (
-        100.0 *
-        numpy.sum(numpy.argmax(predictions, 1) == numpy.argmax(labels, 1)) /
-        predictions.shape[0])
 
 # Write predictions from neural network to a file
 def write_predictions_to_file(predictions, labels, filename):
@@ -281,10 +259,7 @@ def label_to_img(imgwidth, imgheight, w, h, labels):
     idx = 0
     for i in range(0,imgheight,h):
         for j in range(0,imgwidth,w):
-            if labels[idx][0] > 0.5:
-                l = 1
-            else:
-                l = 0
+            l = labels[idx]
             array_labels[j:j+w, i:i+h] = l
             idx = idx + 1
     return array_labels
@@ -338,7 +313,60 @@ def save_images(imgs, output_dir):
         im.save(output_dir + str("/") + str(cntr) + ".png")
         cntr += 1
 
-def main(argv=None):  # pylint: disable=unused-argument
+
+# Get prediction for given input image
+def get_prediction(classifier, img):
+
+    data = numpy.asarray(img_crop(mirror_and_concat_img(img), IMG_PATCH_SIZE, IMG_PATCH_SIZE, IMG_FRAME_SIZE, True))
+
+    eval_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x=data,
+        num_epochs=1,
+        batch_size=PREDICTION_BATCH_SIZE,
+        shuffle=False)
+
+    output_prediction = list(classifier.predict(input_fn=eval_input_fn))
+    predicted_classes = [p["classes"] for p in output_prediction]
+
+    img_prediction = label_to_img(img.shape[0], img.shape[1], IMG_PATCH_SIZE, IMG_PATCH_SIZE, predicted_classes)
+
+    return img_prediction
+
+# Get a concatenation of the prediction and groundtruth for given input file
+def get_prediction_with_groundtruth(classifier, img):
+
+    img_prediction = get_prediction(classifier, img)
+    cimg = concatenate_images(img, img_prediction)
+
+    return cimg
+
+# Get prediction overlaid on the original image for given input file
+def get_prediction_with_overlay(classifier, img):
+
+    img_prediction = get_prediction(classifier, img)
+    oimg = make_img_overlay(img, img_prediction)
+
+    return oimg
+
+def classify_files_in_dir(classifier, input_dir, output_dir, count):
+    if not os.path.isdir(output_dir):
+        os.mkdir(output_dir)
+
+    file_names = [f for f in sorted(listdir(input_dir)) if path.isfile(path.join(input_dir, f))]
+    for i in range(count):
+        filename = file_names[i]
+
+        img = mpimg.imread(input_dir + filename)
+
+        pimg = get_prediction_with_groundtruth(classifier, img)
+        Image.fromarray(pimg).save(output_dir + "prediction_" + filename)
+        oimg = get_prediction_with_overlay(classifier, img)
+        oimg.save(output_dir + "overlay_" + str(filename))
+        pimg = get_prediction(classifier, img)
+        pimg = make_img(pimg)
+        pimg.save(output_dir + "mask_" + str(filename))
+
+def main(argv=None):
 
     timestamp = "{}".format(datetime.datetime.now().strftime("%d-%B-%H:%M:%S"))
     data_dir = 'training/'
@@ -356,8 +384,6 @@ def main(argv=None):  # pylint: disable=unused-argument
     #save_images(train_data, "augmented_training_data")
     #sys.exit()
 
-    num_epochs = NUM_EPOCHS
-
     c0 = 0
     c1 = 0
     for i in range(len(train_labels)):
@@ -367,15 +393,14 @@ def main(argv=None):  # pylint: disable=unused-argument
             c1 = c1 + 1
     print('Number of data points per class: c0 = ' + str(c0) + ' c1 = ' + str(c1))
 
-    print('Balancing training data...')
-    min_c = min(c0, c1)
-    idx0 = [i for i, j in enumerate(train_labels) if j[0] == 1]
-    idx1 = [i for i, j in enumerate(train_labels) if j[1] == 1]
-    new_indices = idx0[0:min_c] + idx1[0:min_c]
+    #print('Balancing training data...')
+    #min_c = min(c0, c1)
+    #idx0 = [i for i, j in enumerate(train_labels) if j[0] == 1]
+    #idx1 = [i for i, j in enumerate(train_labels) if j[1] == 1]
+    #new_indices = idx0[0:min_c] + idx1[0:min_c]
 
-    train_data = train_data[new_indices,:,:,:]
-    train_labels = train_labels[new_indices]
-
+    #train_data = train_data[new_indices,:,:,:]
+    #train_labels = train_labels[new_indices]
 
     train_size = train_labels.shape[0]
 
@@ -389,382 +414,166 @@ def main(argv=None):  # pylint: disable=unused-argument
     print('Number of data points per class: c0 = ' + str(c0) + ' c1 = ' + str(c1))
 
 
-    # This is where training samples and labels are fed to the graph.
-    # These placeholder nodes will be fed a batch of training data at each
-    # training step using the {feed_dict} argument to the Run() call below.
-    train_data_node = tf.placeholder(
-        tf.float32,
-        shape=(TRAINING_BATCH_SIZE, IMG_PATCH_SIZE+2*IMG_FRAME_SIZE, IMG_PATCH_SIZE+2*IMG_FRAME_SIZE, NUM_CHANNELS))
-    train_labels_node = tf.placeholder(tf.float32,
-                                       shape=(TRAINING_BATCH_SIZE, NUM_LABELS))
-    #train_all_data_node = tf.constant(train_data)
-
-    # The variables below hold all the trainable weights. They are passed an
-    # initial value which will be assigned when when we call:
-    # {tf.initialize_all_variables().run()}
-    conv1_weights = tf.Variable(
-        tf.truncated_normal([3, 3, NUM_CHANNELS, 32],
-                            stddev=0.1,
-                            seed=SEED))
-    conv1_biases = tf.Variable(tf.zeros([32]))
-    conv2_weights = tf.Variable(
-        tf.truncated_normal([3, 3, 32, 64],
-                            stddev=0.1,
-                            seed=SEED))
-    conv2_biases = tf.Variable(tf.constant(0.1, shape=[64]))
-
-    conv3_weights = tf.Variable(
-        tf.truncated_normal([3, 3, 64, 128],
-                            stddev=0.1,
-                            seed=SEED))
-    conv3_biases = tf.Variable(tf.constant(0.1, shape=[128]))
-
-    conv4_weights = tf.Variable(
-        tf.truncated_normal([3, 3, 128, 256],
-                            stddev=0.1,
-                            seed=SEED))
-    conv4_biases = tf.Variable(tf.constant(0.1, shape=[256]))
-
-    conv5_weights = tf.Variable(
-        tf.truncated_normal([3, 3, 256, 256],
-                            stddev=0.1,
-                            seed=SEED))
-    conv5_biases = tf.Variable(tf.constant(0.1, shape=[256]))
-
-    fc1_weights = tf.Variable(
-        tf.truncated_normal([int((IMG_PATCH_SIZE+IMG_FRAME_SIZE) / 4 * (IMG_PATCH_SIZE+IMG_FRAME_SIZE) / 8 * 32), 512],
-                            stddev=0.1,
-                            seed=SEED))
-
-    fc1_biases = tf.Variable(tf.constant(0.1, shape=[512]))
-    fc2_weights = tf.Variable(
-        tf.truncated_normal([512, NUM_LABELS],
-                            stddev=0.1,
-                            seed=SEED))
-    fc2_biases = tf.Variable(tf.constant(0.1, shape=[NUM_LABELS]))
-
-    # Make an image summary for 4d tensor image with index idx
-    def get_image_summary(img, idx = 0):
-        V = tf.slice(img, (0, 0, 0, idx), (1, -1, -1, 1))
-        img_w = img.get_shape().as_list()[1]
-        img_h = img.get_shape().as_list()[2]
-        min_value = tf.reduce_min(V)
-        V = V - min_value
-        max_value = tf.reduce_max(V)
-        V = V / (max_value*PIXEL_DEPTH)
-        V = tf.reshape(V, (img_w, img_h, 1))
-        V = tf.transpose(V, (2, 0, 1))
-        V = tf.reshape(V, (-1, img_w, img_h, 1))
-        return V
-    
-    # Make an image summary for 3d tensor image with index idx
-    def get_image_summary_3d(img):
-        V = tf.slice(img, (0, 0, 0), (1, -1, -1))
-        img_w = img.get_shape().as_list()[1]
-        img_h = img.get_shape().as_list()[2]
-        V = tf.reshape(V, (img_w, img_h, 1))
-        V = tf.transpose(V, (2, 0, 1))
-        V = tf.reshape(V, (-1, img_w, img_h, 1))
-        return V
-
-    # Get prediction for given input image 
-    def get_prediction(img):
-
-        data_node = tf.placeholder(tf.float32, shape=(PREDICTION_BATCH_SIZE, IMG_PATCH_SIZE + 2 * IMG_FRAME_SIZE, IMG_PATCH_SIZE + 2 * IMG_FRAME_SIZE, NUM_CHANNELS))
-        data = numpy.asarray(img_crop(mirror_and_concat_img(img), IMG_PATCH_SIZE, IMG_PATCH_SIZE, IMG_FRAME_SIZE, True))
-
-        output_prediction = numpy.empty((data.shape[0],2))
-        indices = range(data.shape[0])
-
-        for k in range(int(ceil(data.shape[0] / PREDICTION_BATCH_SIZE))):
-
-            offs = (k * PREDICTION_BATCH_SIZE)
-            batch_ids = indices[offs:(offs+PREDICTION_BATCH_SIZE)]
-
-            n_unclassified = len(batch_ids)
-
-            if not n_unclassified == PREDICTION_BATCH_SIZE:
-                overf_ids = indices[0:(PREDICTION_BATCH_SIZE - n_unclassified)]
-                batch_ids = numpy.concatenate((batch_ids, overf_ids))
-
-            patches = data[batch_ids,:,:,:]
-
-            fd = {data_node: patches}
-            output = tf.nn.softmax(model(data_node))
-            res = s.run(output, feed_dict=fd)
-
-            output_prediction[offs:(offs + len(batch_ids)),:] = res[range(n_unclassified)]
-
-        img_prediction = label_to_img(img.shape[0], img.shape[1], IMG_PATCH_SIZE, IMG_PATCH_SIZE, output_prediction)
-
-        return img_prediction
-
-    # Get a concatenation of the prediction and groundtruth for given input file
-    def get_prediction_with_groundtruth(img):
-
-        img_prediction = get_prediction(img)
-        cimg = concatenate_images(img, img_prediction)
-
-        return cimg
-
-    # Get prediction overlaid on the original image for given input file
-    def get_prediction_with_overlay(img):
-
-        img_prediction = get_prediction(img)
-        oimg = make_img_overlay(img, img_prediction)
-
-        return oimg
-
-    def classify_files_in_dir(input_dir, output_dir, count):
-        if not os.path.isdir(output_dir):
-            os.mkdir(output_dir)
-
-        file_names = [f for f in sorted(listdir(input_dir)) if path.isfile(path.join(input_dir, f))]
-        for i in range(count):
-            filename = file_names[i]
-
-            img = mpimg.imread(input_dir + filename)
-
-            pimg = get_prediction_with_groundtruth(img)
-            Image.fromarray(pimg).save(output_dir + "prediction_" + filename)
-            oimg = get_prediction_with_overlay(img)
-            oimg.save(output_dir + "overlay_" + str(filename))
-            pimg = get_prediction(img)
-            pimg = make_img(pimg)
-            pimg.save(output_dir + "mask_" + str(filename))
-
     # We will replicate the model structure for the training subgraph, as well
     # as the evaluation subgraphs, while sharing the trainable parameters.
-    def model(data, train=False):
-        """The Model definition."""
-        # 2D convolution, with 'SAME' padding (i.e. the output feature map has
-        # the same size as the input). Note that {strides} is a 4D array whose
-        # shape matches the data layout: [image index, y, x, depth].
+    def model(features, labels, mode):
 
-        conv = tf.nn.conv2d(data,
-                            conv1_weights,
-                            strides=[1, 1, 1, 1],
-                            padding='SAME')
-        # Bias and rectified linear non-linearity.
-        relu = tf.nn.relu(tf.nn.bias_add(conv, conv1_biases))
-        # Max pooling. The kernel size spec {ksize} also follows the layout of
-        # the data. Here we have a pooling window of 2, and a stride of 2.
-        pool = tf.nn.max_pool(relu,
-                              ksize=[1, 2, 2, 1],
-                              strides=[1, 2, 2, 1],
-                              padding='SAME')
+        conv1 = tf.layers.conv2d(
+            inputs=features,
+            filters=32,
+            kernel_size=[3, 3],
+            padding="SAME",
+            activation=tf.nn.relu
+        )
 
-        conv2 = tf.nn.conv2d(pool,
-                            conv2_weights,
-                            strides=[1, 1, 1, 1],
-                            padding='SAME')
-        relu2 = tf.nn.relu(tf.nn.bias_add(conv2, conv2_biases))
-        pool2 = tf.nn.max_pool(relu2,
-                              ksize=[1, 2, 2, 1],
-                              strides=[1, 2, 2, 1],
-                              padding='SAME')
+        pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=[2, 2], padding='SAME')
 
-        conv3 = tf.nn.conv2d(pool2,
-                            conv3_weights,
-                            strides=[1, 1, 1, 1],
-                            padding='SAME')
-        relu3 = tf.nn.relu(tf.nn.bias_add(conv3, conv3_biases))
-        pool3 = tf.nn.max_pool(relu3,
-                              ksize=[1, 2, 2, 1],
-                              strides=[1, 2, 2, 1],
-                              padding='SAME')
+        conv2 = tf.layers.conv2d(
+            inputs=pool1,
+            filters=64,
+            kernel_size=[3, 3],
+            padding="SAME",
+            activation=tf.nn.relu
+        )
 
-        conv4 = tf.nn.conv2d(pool3,
-                            conv4_weights,
-                            strides=[1, 1, 1, 1],
-                            padding='SAME')
-        relu4 = tf.nn.relu(tf.nn.bias_add(conv4, conv4_biases))
-        pool4 = tf.nn.max_pool(relu4,
-                              ksize=[1, 2, 2, 1],
-                              strides=[1, 2, 2, 1],
-                              padding='SAME')
+        pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=[2, 2], padding='SAME')
 
-        conv5 = tf.nn.conv2d(pool4,
-                            conv5_weights,
-                            strides=[1, 1, 1, 1],
-                            padding='SAME')
-        relu5 = tf.nn.relu(tf.nn.bias_add(conv5, conv5_biases))
-        pool5 = tf.nn.max_pool(relu5,
-                              ksize=[1, 2, 2, 1],
-                              strides=[1, 2, 2, 1],
-                              padding='SAME')
+        conv3 = tf.layers.conv2d(
+            inputs=pool2,
+            filters=128,
+            kernel_size=[3, 3],
+            padding="SAME",
+            activation=tf.nn.relu
+        )
 
+        pool3 = tf.layers.max_pooling2d(inputs=conv3, pool_size=[2, 2], strides=[2, 2], padding='SAME')
 
-        #print('data ' + str(data.get_shape()))
-        #print('conv ' + str(conv.get_shape()))
-        #print('relu ' + str(relu.get_shape()))
-        #print('pool ' + str(pool.get_shape()))
-        #print('pool2 ' + str(pool2.get_shape()))
-        #print('pool3 ' + str(pool3.get_shape()))
-        #print('pool4 ' + str(pool4.get_shape()))
-        #print('pool5 ' + str(pool5.get_shape()))
+        conv4 = tf.layers.conv2d(
+            inputs=pool3,
+            filters=256,
+            kernel_size=[3, 3],
+            padding="SAME",
+            activation=tf.nn.relu,
+            kernel_initializer=tf.truncated_normal_initializer(stddev=0.1, seed=SEED),
+            bias_initializer=tf.constant_initializer(0.1)
+        )
 
-        # Reshape the feature map cuboid into a 2D matrix to feed it to the
-        # fully connected layers.
-        pool_shape = pool5.get_shape().as_list()
-        flattened = tf.reshape(
-            pool5,
-            [pool_shape[0], pool_shape[1] * pool_shape[2] * pool_shape[3]])
-        # Fully connected layer. Note that the '+' operation automatically
-        # broadcasts the biases.
-        hidden = tf.nn.relu(tf.matmul(flattened, fc1_weights) + fc1_biases)
-        #hidden = tf.layers.dense(inputs=flattened, units=512, activation=tf.nn.relu)
+        pool4 = tf.layers.max_pooling2d(inputs=conv4, pool_size=[2, 2], strides=[2, 2], padding='SAME')
 
-        # Add a 50% dropout during training only. Dropout also scales
-        # activations such that no rescaling is needed at evaluation time.
-        if train:
-            hidden = tf.nn.dropout(hidden, 0.5, seed=SEED)
+        conv5 = tf.layers.conv2d(
+            inputs=pool4,
+            filters=256,
+            kernel_size=[3, 3],
+            padding="SAME",
+            activation=tf.nn.relu
+        )
 
-        out = tf.matmul(hidden, fc2_weights) + fc2_biases
-        #out = tf.layers.dense(inputs=hidden, units=2, activation=tf.nn.relu)
+        pool5 = tf.layers.max_pooling2d(inputs=conv5, pool_size=[2, 2], strides=[2, 2], padding='SAME')
 
-        return out
+        #print('data ' + str(tf.shape(features)))
+        #print('conv1 ' + str(tf.shape(conv1)))
+        #print('pool1 ' + str(tf.shape(pool1)))
+        #print('conv2 ' + str(tf.shape(conv2)))
+        #print('pool2 ' + str(tf.shape(pool2)))
+        #print('conv3 ' + str(tf.shape(conv3)))
+        #print('pool3 ' + str(tf.shape(pool3)))
+        #print('conv4 ' + str(tf.shape(conv4)))
+        #print('pool4 ' + str(tf.shape(pool4)))
+        #print('conv5 ' + str(tf.shape(conv5)))
+        #print('pool5 ' + str(tf.shape(pool5)))
 
-    # Training computation: logits + cross-entropy loss.
-    logits = model(train_data_node, True) # TRAINING_BATCH_SIZE*NUM_LABELS
-    # print 'logits = ' + str(logits.get_shape()) + ' train_labels_node = ' + str(train_labels_node.get_shape())
-    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits, labels=train_labels_node))
-    tf.summary.scalar('loss', loss)
+        flattened = tf.layers.flatten(pool5)
 
-    all_params_node = [conv1_weights, conv1_biases, conv2_weights, conv2_biases, conv3_weights, conv3_biases, conv4_weights, conv4_biases, conv5_biases, conv5_weights, fc1_biases, fc1_weights]
-    all_params_names = ['conv1_weights', 'conv1_biases', 'conv2_weights', 'conv2_biases', 'conv3_weights', 'conv3_biases', 'conv4_weights', 'conv4_biases', 'conv5_biases', 'conv5_weights', 'fc1_biases', 'fc1_weights']
-    all_grads_node = tf.gradients(loss, all_params_node)
-    all_grad_norms_node = []
-    for i in range(0, len(all_grads_node)):
-        norm_grad_i = tf.global_norm([all_grads_node[i]])
-        all_grad_norms_node.append(norm_grad_i)
-        tf.summary.scalar(all_params_names[i], norm_grad_i)
-    
-    # L2 regularization for the fully connected parameters.
-    regularizers = (tf.nn.l2_loss(fc1_weights) + tf.nn.l2_loss(fc1_biases) +
-                    tf.nn.l2_loss(fc2_weights) + tf.nn.l2_loss(fc2_biases))
-    # Add the regularization term to the loss.
-    loss += 5e-4 * regularizers
+        fc1 = tf.layers.dense(
+            inputs=flattened,
+            units=512,
+            activation=tf.nn.relu,
+            kernel_initializer=tf.truncated_normal_initializer(stddev=0.1, seed=SEED),
+            bias_initializer=tf.constant_initializer(0.1),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=5e-4))
 
-    # Optimizer: set up a variable that's incremented once per batch and
-    # controls the learning rate decay.
-    batch = tf.Variable(0)
-    # Decay once per epoch, using an exponential schedule starting at 0.01.
-    learning_rate = tf.train.exponential_decay(
-        0.01,                # Base learning rate.
-        batch * TRAINING_BATCH_SIZE,  # Current index into the dataset.
-        train_size,          # Decay step.
-        0.98,                # Decay rate.
-        staircase=True)
+        dropout = tf.layers.dropout(inputs=fc1, rate=0.5, training=mode == tf.estimator.ModeKeys.TRAIN, seed=SEED)
 
-    momentum = tf.train.exponential_decay(
-        0.005,
-        batch * TRAINING_BATCH_SIZE,
-        train_size,
-        1.00,
-        staircase=True)
+        logits = tf.layers.dense(
+            inputs=dropout,
+            units=2,
+            activation=tf.nn.relu,
+            kernel_initializer=tf.truncated_normal_initializer(stddev=0.1, seed=SEED),
+            bias_initializer=tf.constant_initializer(0.1),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=5e-4))
 
-    tf.summary.scalar('learning_rate', learning_rate)
-    tf.summary.scalar('momentum', momentum)
-    
-    # Use simple momentum for the optimization.
-    optimizer = tf.train.MomentumOptimizer(learning_rate,
-                                           momentum).minimize(loss,
-                                                         global_step=batch)
+        predictions = {
+            "classes": tf.argmax(input=logits, axis=1),
+            "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
+        }
 
-    # Predictions for the minibatch, validation set and test set.
-    train_prediction = tf.nn.softmax(logits)
+        if mode == tf.estimator.ModeKeys.PREDICT:
+            return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
-    # Add ops to save and restore all the variables.
-    saver = tf.train.Saver()
+        loss = tf.losses.softmax_cross_entropy(labels, logits)
+        regularization_loss = tf.losses.get_regularization_loss()
+        loss += regularization_loss
 
-    #gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.7)
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            learning_rate = tf.train.exponential_decay(
+                0.01,
+                tf.train.get_global_step() * TRAINING_BATCH_SIZE,
+                train_size,
+                0.98,
+                staircase=True)
 
-    # Create a local session to run this computation.
-    #with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as s:
-    with tf.Session() as s:
+            momentum = tf.train.exponential_decay(
+                0.005,
+                tf.train.get_global_step() * TRAINING_BATCH_SIZE,
+                train_size,
+                1.00,
+                staircase=True)
 
-        if RESTORE_MODEL:
-            # Restore variables from disk.
-            saver.restore(s, FLAGS.train_dir + "/model.ckpt")
-            print("Model restored.")
+            optimizer = tf.train.MomentumOptimizer(learning_rate, momentum)
+            train_op = optimizer.minimize(loss=loss, global_step=tf.train.get_global_step())
 
-        else:
-            # Run all the initializers to prepare the trainable parameters.
-            tf.global_variables_initializer().run()
+            tf.summary.scalar('regularization_loss', regularization_loss)
+            tf.summary.scalar('learning_rate', learning_rate)
+            tf.summary.scalar('momentum', momentum)
 
-            # Build the summary operation based on the TF collection of Summaries.
-            summary_op = tf.summary.merge_all()
-            summary_writer = tf.summary.FileWriter(FLAGS.train_dir + "/" + timestamp, graph=s.graph)
-            print('Initialized!')
-            # Loop through training steps.
-            print('Total number of iterations = ' + str(int(num_epochs * train_size / TRAINING_BATCH_SIZE)))
+            for var in tf.trainable_variables():
+                tf.summary.histogram(var.name, var)
+                #tf.summary.image(var.name, var)
 
-            training_indices = range(train_size)
+            summary_hook = tf.train.SummarySaverHook(RECORDING_STEP, summary_op=tf.summary.merge_all())
+            logging_hook = tf.train.LoggingTensorHook({"epoch": tf.train.get_global_step() / tf.constant(ceil(train_size / TRAINING_BATCH_SIZE), dtype=tf.int64), "learning_rate": learning_rate, "momentum": momentum }, every_n_iter=RECORDING_STEP)
 
-            for iepoch in range(num_epochs):
+            return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op,  training_hooks=[summary_hook, logging_hook])
 
-                # Permute training indices
-                perm_indices = numpy.random.permutation(training_indices)
+        eval_metric_ops = {
+            "accuracy": tf.metrics.accuracy(labels=labels, predictions=predictions["classes"])
+        }
 
-                for step in range (int(ceil(train_size / TRAINING_BATCH_SIZE))):
-
-                    # wtf how is this supposed to work???
-                    #offset = (step * TRAINING_BATCH_SIZE) % (train_size - TRAINING_BATCH_SIZE)
-
-                    offset = (step * TRAINING_BATCH_SIZE)
-                    batch_indices = perm_indices[offset:(offset + TRAINING_BATCH_SIZE)]
-
-                    if not len(batch_indices) == TRAINING_BATCH_SIZE:
-                        overflow_ids = perm_indices[0:(TRAINING_BATCH_SIZE-len(batch_indices))]
-                        batch_indices = numpy.concatenate((batch_indices, overflow_ids))
-
-                    # Compute the offset of the current minibatch in the data.
-                    # Note that we could use better randomization across epochs.
-                    batch_data = train_data[batch_indices, :, :, :]
-                    batch_labels = train_labels[batch_indices]
-                    # This dictionary maps the batch data (as a numpy array) to the
-                    # node in the graph is should be fed to.
-
-                    feed_dict = {train_data_node: batch_data,
-                                 train_labels_node: batch_labels}
-
-                    if step % RECORDING_STEP == 0:
-
-                        summary_str, _, l, lr, m, predictions = s.run(
-                            [summary_op, optimizer, loss, learning_rate, momentum, train_prediction],
-                            feed_dict=feed_dict)
-                        #summary_str = s.run(summary_op, feed_dict=feed_dict)
-                        summary_writer.add_summary(summary_str, step)
-                        summary_writer.flush()
-
-                        # print_predictions(predictions, batch_labels)
-
-                        print('Epoch %d:%.2f' % (iepoch, float(step) * TRAINING_BATCH_SIZE / train_size))
-                        print('Minibatch loss: %.3f, learning rate: %.6f, momentum: %.6f' % (l, lr, m))
-                        print('Minibatch error: %.1f%%' % error_rate(predictions, batch_labels))
-
-                        assert not numpy.isnan(l), 'Model diverged with loss = NaN'
-
-                        sys.stdout.flush()
-                    else:
-                        # Run the graph and fetch some of the nodes.
-                        _, l, lr, m, predictions = s.run(
-                            [optimizer, loss, learning_rate, momentum, train_prediction],
-                            feed_dict=feed_dict)
-
-                # Save the variables to disk.
-                save_path = saver.save(s, FLAGS.train_dir + "/model.ckpt")
-                print("Model saved in file: %s" % save_path)
+        return tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
 
 
-        print ("Running prediction on training set")
-        classify_files_in_dir(train_data_path, timestamp + "_predictions_training/", TRAINING_SIZE)
+    classifier = tf.estimator.Estimator(model_fn=model, model_dir=FLAGS.train_dir + "/" + timestamp)
 
-        print ("Running prediction on test set")
-        classify_files_in_dir(test_dir, timestamp + "_predictions_test/", TEST_SIZE)
+    train_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x=train_data,
+        y=train_labels,
+        batch_size=TRAINING_BATCH_SIZE,
+        num_epochs=NUM_EPOCHS,
+        shuffle=True
+    )
 
-        copyfile(sys.argv[0], timestamp + "_predictions_test/model.py")
+    classifier.train(
+        input_fn=train_input_fn,
+        steps=None
+    )
+
+    print ("Running prediction on training set")
+    classify_files_in_dir(classifier, train_data_path, timestamp + "_predictions_training/", TRAINING_SIZE)
+
+    print ("Running prediction on test set")
+    classify_files_in_dir(classifier, test_dir, timestamp + "_predictions_test/", TEST_SIZE)
+
+    copyfile(sys.argv[0], timestamp + "_predictions_test/model.py")
 
 
 if __name__ == '__main__':
