@@ -1,8 +1,30 @@
 import matplotlib.image as mpimg
 import os
 import numpy
-
+import errno
 import constansts
+
+'''
+Pure utility funcitons
+'''
+
+
+def get_file_names():
+    data_dir = 'data/test_images/'
+    names = [filename for filename in os.listdir(data_dir)]
+    return names
+
+
+def read_img(path):
+    img = mpimg.imread(path)
+    data = numpy.asarray(_img_crop(img, constansts.IMG_PATCH_SIZE, constansts.IMG_PATCH_SIZE))
+    return data
+
+
+def create_prediction_dir(prediction_test_dir):
+    print("Running prediction on test set")
+    if not os.path.isdir(prediction_test_dir):
+        os.mkdir(prediction_test_dir)
 
 
 def img_float_to_uint8(img):
@@ -60,11 +82,12 @@ def load_test_data(tiling=True):
     for filename in os.listdir(data_dir):
         path = data_dir + filename
         if os.path.isfile(path):
-            print('Loading ' + path)
+            # print('Loading ' + path)
             img = mpimg.imread(path)
             imgs.append(img)
         else:
             print('File ' + path + ' does not exist')
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), path)
 
     if tiling:
         imgs = _cut_tiles_img(imgs)
@@ -86,11 +109,12 @@ def _extract_data(filename, num_images, tiling=True):
         imageid = "satImage_%.3d" % i
         image_filename = filename + imageid + ".png"
         if os.path.isfile(image_filename):
-            print('Loading ' + image_filename)
+            # print('Loading ' + image_filename)
             img = mpimg.imread(image_filename)
             imgs.append(img)
         else:
             print('File ' + image_filename + ' does not exist')
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), image_filename)
 
     if tiling:
         imgs = _cut_tiles_img(imgs)
@@ -106,11 +130,12 @@ def _extract_labels(filename, num_images, tiling=True):
         imageid = "satImage_%.3d" % i
         image_filename = filename + imageid + ".png"
         if os.path.isfile(image_filename):
-            print('Loading ' + image_filename)
+            # print('Loading ' + image_filename)
             img = mpimg.imread(image_filename)
             gt_imgs.append(img)
         else:
             print('File ' + image_filename + ' does not exist')
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), image_filename)
 
     if tiling:
         data = _cut_tiles_lbl(gt_imgs)
