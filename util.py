@@ -4,11 +4,34 @@ import numpy
 
 import constansts
 
+
+def img_float_to_uint8(img):
+    rimg = img - numpy.min(img)
+    rimg = (rimg / numpy.max(rimg) * constansts.PIXEL_DEPTH).round().astype(numpy.uint8)
+    return rimg
+
+
+def label_to_img_inverse(imgwidth, imgheight, w, h, labels):
+    array_labels = numpy.zeros([imgwidth, imgheight])
+    idx = 0
+    for i in range(0, imgheight, h):
+        for j in range(0, imgwidth, w):
+            if labels[idx][0] > 0.5:
+                l = 0
+            else:
+                l = 1
+            array_labels[j:j + w, i:i + h] = l
+            idx = idx + 1
+    return array_labels
+
+
 def one_hot_to_num(lbl):
     return numpy.argmax(lbl, axis=1)
 
+
 def channel_first(tensor):
     return numpy.rollaxis(tensor, 3, 1)
+
 
 '''
 TRAIN DATA

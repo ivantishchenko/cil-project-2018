@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from PIL import Image
 import constansts
 import tensorflow as tf
 import util
@@ -122,7 +123,7 @@ def main(unused_argv):
 
     road_estimator.train(
         input_fn=train_input_fn,
-        steps=constansts.N_SAMPLES * constansts.NUM_EPOCH)
+        max_steps=constansts.N_SAMPLES * constansts.NUM_EPOCH)
 
     # Evaluate the model and print results
     # eval_data, eval_labels = util.load_train_data(tiling=True)
@@ -138,17 +139,41 @@ def main(unused_argv):
     # print(eval_results)
 
     # Do predictions
-    predict_data = util.load_test_data(tiling=True)
+    # predict_data = util.load_test_data(tiling=True)
+    #
+    # predict_input_fn = tf.estimator.inputs.numpy_input_fn(
+    #     x={"x": predict_data},
+    #     num_epochs=1,
+    #     shuffle=False)
+    #
+    # res = []
+    # predictions = road_estimator.predict(input_fn=predict_input_fn)
+    # for p in predictions:
+    #     res.append(p['probabilities'])
+    #
+    # for i in range(1, 95):
+    #     img = util.label_to_img_inverse(608, 608, constansts.IMG_PATCH_SIZE,  constansts.IMG_PATCH_SIZE, res[(i-1)*1444:i*1444])
+    #     img = util.img_float_to_uint8(img)
+    #     Image.fromarray(img).save('predictions_test/' + str(i)+ '.png')
 
+    #Predictions
+
+    predict_data, _ = util.load_train_data(tiling=True)
     predict_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"x": predict_data},
         num_epochs=1,
         shuffle=False)
 
-    res = []
     predictions = road_estimator.predict(input_fn=predict_input_fn)
+
+    res = []
     for p in predictions:
         res.append(p['probabilities'])
+
+    for i in range(1, 101):
+        img = util.label_to_img_inverse(400, 400, constansts.IMG_PATCH_SIZE,  constansts.IMG_PATCH_SIZE, res[(i-1)*625:i*625])
+        img = util.img_float_to_uint8(img)
+        Image.fromarray(img).save('predictions_test/' + str(i)+ '.png')
 
 
 
