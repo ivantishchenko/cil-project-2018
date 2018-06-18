@@ -167,6 +167,23 @@ def main(unused_argv):
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i - 1])
 
+    # Predictions Train
+    predict_data, _ = util.load_train_data(tiling=True)
+    predict_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={"x": predict_data},
+        num_epochs=1,
+        shuffle=False)
+
+    predictions = road_estimator.predict(input_fn=predict_input_fn)
+
+    res = [p['probabilities'] for p in predictions]
+    util.create_prediction_dir("predictions_train/")
+    for i in range(1, 101):
+        img = util.label_to_img_inverse(400, 400, constansts.IMG_PATCH_SIZE, constansts.IMG_PATCH_SIZE,
+                                        res[(i - 1) * 625:i * 625])
+        img = util.img_float_to_uint8(img)
+        Image.fromarray(img).save('predictions_train/' + str(i) + '.png')
+
 
 
 if __name__ == "__main__":
