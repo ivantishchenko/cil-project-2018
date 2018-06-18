@@ -5,3 +5,4 @@ IMG_PATCH_SIZE = 16
 PIXEL_DEPTH = 255
 
 TEST_DATA_PATH = 'data/test_images/'
+N_TEST_SAMPLES = 94

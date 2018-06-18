@@ -12,7 +12,14 @@ tf.logging.set_verbosity(tf.logging.INFO)
 
 
 def cnn_model_fn(features, labels, mode):
-    """Model function for CNN."""
+    """
+    Model function for CNN.
+    :param features: input X fed to the estimator
+    :param labels: input Y fed to the estimator
+    :param mode: TRAIN, EVAL, PREDICT
+    :return: tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
+    """
+
     # Input Layer
     # 4-D tensor: [batch_size, width, height, channels]
     input_layer = features["x"]
@@ -155,7 +162,7 @@ def main(unused_argv):
     util.create_prediction_dir("predictions_test/")
     offset = 1444
 
-    for i in range(1, 95):
+    for i in range(1, constansts.N_TEST_SAMPLES + 1):
         img = util.label_to_img_inverse(608, 608, 16,  16, res[(i - 1) * offset:i * offset])
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i - 1])
