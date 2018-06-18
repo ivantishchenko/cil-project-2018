@@ -10,6 +10,8 @@ import util
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
+TILING = True  # Use 16x16 tiles (True) or feed in image directly to network (False)
+
 
 def cnn_model_fn(features, labels, mode):
     """
@@ -91,6 +93,7 @@ def cnn_model_fn(features, labels, mode):
         # `logging_hook`.
         "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
     }
+
     if mode == tf.estimator.ModeKeys.PREDICT:
         return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
@@ -99,23 +102,24 @@ def cnn_model_fn(features, labels, mode):
 
     # Configure the Training Op (for TRAIN mode)
     if mode == tf.estimator.ModeKeys.TRAIN:
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001)
+        optimizer = tf.train.AdamOptimizer(learning_rate=1e-4)
         train_op = optimizer.minimize(
             loss=loss,
-            global_step=tf.train.get_global_step())
+            global_step=tf.train.get_global_step()
+        )
         return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
 
     # Add evaluation metrics (for EVAL mode)
     eval_metric_ops = {
-        "accuracy": tf.metrics.accuracy(
-            labels=labels, predictions=predictions["classes"])}
-    return tf.estimator.EstimatorSpec(
-        mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
+        "accuracy": tf.metrics.accuracy(labels=labels, predictions=predictions["classes"])
+    }
+
+    return tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
 
 
 def main(unused_argv):
     # load provided images
-    train_data, train_labels = util.load_train_data(tiling=True)
+    train_data, train_labels = util.load_train_data(tiling=TILING)
     train_labels = util.one_hot_to_num(train_labels)
 
     # Create the Estimator
@@ -123,6 +127,7 @@ def main(unused_argv):
         model_fn=cnn_model_fn, model_dir="outputs/road")
 
     # Train the model
+    # TODO: Include data augmentation here via augmenting both train_data and train_labels
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"x": train_data},
         y=train_labels,
@@ -135,7 +140,7 @@ def main(unused_argv):
         max_steps=constansts.N_SAMPLES * constansts.NUM_EPOCH)
 
     # Evaluate the model and print results
-    eval_data, eval_labels = util.load_train_data(tiling=True)
+    eval_data, eval_labels = util.load_train_data(tiling=TILING)
     eval_labels = util.one_hot_to_num(eval_labels)
 
     eval_input_fn = tf.estimator.inputs.numpy_input_fn(
@@ -148,7 +153,7 @@ def main(unused_argv):
     print(eval_results)
 
     # Do prediction on test data
-    predict_data = util.load_test_data(tiling=True)
+    predict_data = util.load_test_data(tiling=TILING)
 
     predict_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"x": predict_data},
@@ -182,9 +187,24 @@ def main(unused_argv):
         img = util.label_to_img_inverse(400, 400, constansts.IMG_PATCH_SIZE, constansts.IMG_PATCH_SIZE,
                                         res[(i - 1) * 625:i * 625])
         img = util.img_float_to_uint8(img)
-        Image.fromarray(img).save('predictions_train/' + str(i) + '.png')
+        Image.fromarray(img).save('predictions_train/{:03}.png'.format(i))
 
 
 
 if __name__ == "__main__":
+    # TODO: Log some advanced metrics interesting for the report maybe?
+    # run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+    # run_metadata = tf.RunMetadata()
+    # with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
+    #     file_writer = tf.summary.FileWriter('<path>', sess.graph)
+    #
+    #     for (run_iteration...)
+    #         ... = sess.run(....,
+    #                        options=run_options,
+    #                        run_metadata=run_metadata
+    #                        )
+    #
+    #         file_writer.add_run_metadata(
+    #             run_metadata, "run%d" % (run_iteration,), run_iteration)
+
     tf.app.run()
