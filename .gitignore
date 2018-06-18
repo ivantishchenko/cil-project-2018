@@ -4,7 +4,7 @@
 data/training
 data/test_images
 predictions_test/
-predictions_training/
+predictions_train/
 submissions
 
 __pycache__/
