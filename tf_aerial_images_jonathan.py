@@ -1,8 +1,3 @@
-"""
-Baseline for CIL cil-project on road segmentation.
-This simple baseline consits of a CNN with two convolutional+pooling layers with a soft-max loss
-"""
-
 import os
 import sys
 import matplotlib.image as mpimg
@@ -17,8 +12,8 @@ NUM_LABELS = 2
 TRAINING_SIZE = 100
 VALIDATION_SIZE = 20  # Size of the validation set.
 SEED = 66478  # Set to None for random seed.
-BATCH_SIZE = 64
-NUM_EPOCHS = 10
+BATCH_SIZE = 16
+NUM_EPOCHS = 4
 RESTORE_MODEL = False  # If True, restore existing model instead of training a new one
 RECORDING_STEP = 1000
 
@@ -37,10 +32,8 @@ FLAGS = tf.app.flags.FLAGS
 TEST_DATA_PATH = 'data/test_images/'
 
 # TODO:
-# - Data augmentation (rotation + reflection)
 # - Network enlargement (4 or 6 convolutions)
 # - ResNet blocks
-# - Try with different settings
 # - Padding
 
 # Extract patches from a given image
@@ -57,6 +50,34 @@ def img_crop(im, w, h):
                 im_patch = im[j:j + w, i:i + h, :]
             list_patches.append(im_patch)
     return list_patches
+
+
+
+def augment_training_data(data, labels):
+    data8 = numpy.uint8(data*255.0)
+
+    r0 = numpy.rot90(data8, 1, axes=(1, 2))
+    r1 = numpy.rot90(data8, 2, axes=(1, 2))
+    r2 = numpy.rot90(data8, 3, axes=(1, 2))
+
+    m0 = numpy.flip(data8, 2)
+
+    m0r0 = numpy.rot90(m0, 1, axes=(1, 2))
+    m0r1 = numpy.rot90(m0, 2, axes=(1, 2))
+    m0r2 = numpy.rot90(m0, 3, axes=(1, 2))
+
+    m1 = numpy.flip(data8, 1)
+
+    m1r0 = numpy.rot90(m1, 1, axes=(1, 2))
+    m1r1 = numpy.rot90(m1, 2, axes=(1, 2))
+    m1r2 = numpy.rot90(m1, 3, axes=(1, 2))
+
+    rotated_and_mirrored = numpy.concatenate((data8, r0, r1, r2, m0, m0r0, m0r1, m0r2, m1, m1r0, m1r1, m1r2), axis=0)
+    augmented_data8 = rotated_and_mirrored
+    augmented_labels = numpy.tile(labels, (12,1))
+    augmented_data = numpy.float32(augmented_data8) / 255.0
+
+    return augmented_data, augmented_labels
 
 
 def extract_data(filename, num_images):
@@ -238,8 +259,11 @@ def main(argv=None):  # pylint: disable=unused-argument
     print(train_data.shape)
     train_data = train_data[new_indices, :, :, :]
     train_labels = train_labels[new_indices]
+    train_data, train_labels = augment_training_data(train_data, train_labels);
 
     train_size = train_labels.shape[0]
+
+    print('Training size: %d' % train_size)
 
     c0 = 0
     c1 = 0
