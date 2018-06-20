@@ -2,7 +2,7 @@ import matplotlib.image as mpimg
 import os
 import numpy
 import errno
-import constansts
+import constants
 
 '''
 Pure utility funcitons
@@ -17,7 +17,7 @@ def get_file_names():
 
 def read_img(path):
     img = mpimg.imread(path)
-    data = numpy.asarray(_img_crop(img, constansts.IMG_PATCH_SIZE, constansts.IMG_PATCH_SIZE))
+    data = numpy.asarray(_img_crop(img, constants.IMG_PATCH_SIZE, constants.IMG_PATCH_SIZE))
     return data
 
 
@@ -29,7 +29,7 @@ def create_prediction_dir(prediction_test_dir):
 
 def img_float_to_uint8(img):
     rimg = img - numpy.min(img)
-    rimg = (rimg / numpy.max(rimg) * constansts.PIXEL_DEPTH).round().astype(numpy.uint8)
+    rimg = (rimg / numpy.max(rimg) * constants.PIXEL_DEPTH).round().astype(numpy.uint8)
     return rimg
 
 
@@ -66,8 +66,8 @@ def load_train_data(tiling=True):
     train_labels_filename = data_dir + 'groundtruth/'
 
     # Extract it into numpy arrays.
-    train_data = _extract_data(train_data_filename, constansts.N_SAMPLES, tiling)
-    train_labels = _extract_labels(train_labels_filename, constansts.N_SAMPLES, tiling)
+    train_data = _extract_data(train_data_filename, constants.N_IMAGES, tiling)
+    train_labels = _extract_labels(train_labels_filename, constants.N_IMAGES, tiling)
     return train_data, train_labels
 
 
@@ -174,14 +174,14 @@ def _value_to_class(v):
 
 def _cut_tiles_img(imgs):
     num_images = len(imgs)
-    img_patches = [_img_crop(imgs[i], constansts.IMG_PATCH_SIZE, constansts.IMG_PATCH_SIZE) for i in range(num_images)]
+    img_patches = [_img_crop(imgs[i], constants.IMG_PATCH_SIZE, constants.IMG_PATCH_SIZE) for i in range(num_images)]
     data = [img_patches[i][j] for i in range(len(img_patches)) for j in range(len(img_patches[i]))]
     return data
 
 
 def _cut_tiles_lbl(gt_imgs):
     num_images = len(gt_imgs)
-    gt_patches = [_img_crop(gt_imgs[i], constansts.IMG_PATCH_SIZE, constansts.IMG_PATCH_SIZE) for i in
+    gt_patches = [_img_crop(gt_imgs[i], constants.IMG_PATCH_SIZE, constants.IMG_PATCH_SIZE) for i in
                   range(num_images)]
     data = numpy.asarray([gt_patches[i][j] for i in range(len(gt_patches)) for j in range(len(gt_patches[i]))])
     return data

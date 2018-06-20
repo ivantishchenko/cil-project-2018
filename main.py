@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 from PIL import Image
-import constansts
+import constants
 import tensorflow as tf
 import util
 
@@ -131,13 +131,13 @@ def main(unused_argv):
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"x": train_data},
         y=train_labels,
-        batch_size=constansts.BATCH_SIZE,
-        num_epochs=constansts.NUM_EPOCH,
+        batch_size=constants.BATCH_SIZE,
+        num_epochs=None,
         shuffle=True)
 
     road_estimator.train(
         input_fn=train_input_fn,
-        max_steps=constansts.N_SAMPLES * constansts.NUM_EPOCH)
+        steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
 
     # Evaluate the model and print results
     eval_data, eval_labels = util.load_train_data(tiling=TILING)
@@ -167,7 +167,7 @@ def main(unused_argv):
     util.create_prediction_dir("predictions_test/")
     offset = 1444
 
-    for i in range(1, constansts.N_TEST_SAMPLES + 1):
+    for i in range(1, constants.N_TEST_SAMPLES + 1):
         img = util.label_to_img_inverse(608, 608, 16,  16, res[(i - 1) * offset:i * offset])
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i - 1])
@@ -184,7 +184,7 @@ def main(unused_argv):
     res = [p['probabilities'] for p in predictions]
     util.create_prediction_dir("predictions_train/")
     for i in range(1, 101):
-        img = util.label_to_img_inverse(400, 400, constansts.IMG_PATCH_SIZE, constansts.IMG_PATCH_SIZE,
+        img = util.label_to_img_inverse(400, 400, constants.IMG_PATCH_SIZE, constants.IMG_PATCH_SIZE,
                                         res[(i - 1) * 625:i * 625])
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_train/{:03}.png'.format(i))
