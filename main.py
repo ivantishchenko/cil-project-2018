@@ -7,7 +7,6 @@ import constants
 import tensorflow as tf
 import util
 
-
 tf.logging.set_verbosity(tf.logging.INFO)
 
 TILING = True  # Use 16x16 tiles (True) or feed in image directly to network (False)
@@ -26,6 +25,32 @@ def cnn_model_fn(features, labels, mode):
     # 4-D tensor: [batch_size, width, height, channels]
     input_layer = features["x"]
 
+    # Image augmentation
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        # FLIP UP DOWN
+        flip_ud = lambda x: tf.image.random_flip_up_down(x)
+        input_layer = tf.map_fn(flip_ud, input_layer)
+
+        # FLIP LEFT RIGHT
+        flip_lr = lambda x: tf.image.flip_left_right(x)
+        input_layer = tf.map_fn(flip_lr, input_layer)
+
+        # BRIGHTNESS
+        bright = lambda x: tf.image.random_brightness(x, max_delta=0.1)
+        input_layer = tf.map_fn(bright, input_layer)
+
+        # CONTRAST
+        contrast = lambda x: tf.image.random_contrast(x, lower=0.1, upper=0.15)
+        input_layer = tf.map_fn(contrast, input_layer)
+
+        # HUE
+        hue = lambda x: tf.image.random_hue(x, max_delta=0.1)
+        input_layer = tf.map_fn(hue, input_layer)
+
+        # SATURATION
+        satur = lambda x: tf.image.random_saturation(x, lower=0.1, upper=0.15)
+        input_layer = tf.map_fn(satur, input_layer)
+
     # Model Port
 
     # Convolutional Layer #1
@@ -39,7 +64,6 @@ def cnn_model_fn(features, labels, mode):
         kernel_size=[5, 5],
         padding="same",
         activation=tf.nn.relu)
-
 
     # Pooling Layer #1
     # First max pooling layer with a 2x2 filter and stride of 2
@@ -119,15 +143,22 @@ def cnn_model_fn(features, labels, mode):
 
 def main(unused_argv):
     # load provided images
-    train_data, train_labels = util.load_train_data(tiling=TILING)
+    train_data, train_labels = util.load_train_data(tiling=False)
+    predict_data = util.load_test_data(tiling=False)
+    # expansion
+    train_data = util.crete_patches_large(train_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=False)
+
+    train_labels = util.crete_patches_large(train_labels, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=True)
     train_labels = util.one_hot_to_num(train_labels)
+
+    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING,
+                                            is_mask=False)
 
     # Create the Estimator
     road_estimator = tf.estimator.Estimator(
         model_fn=cnn_model_fn, model_dir="outputs/road")
 
     # Train the model
-    # TODO: Include data augmentation here via augmenting both train_data and train_labels
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"x": train_data},
         y=train_labels,
@@ -140,12 +171,9 @@ def main(unused_argv):
         steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
 
     # Evaluate the model and print results
-    eval_data, eval_labels = util.load_train_data(tiling=TILING)
-    eval_labels = util.one_hot_to_num(eval_labels)
-
     eval_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={"x": eval_data},
-        y=eval_labels,
+        x={"x": train_data},
+        y=train_labels,
         num_epochs=1,
         shuffle=False)
 
@@ -153,8 +181,6 @@ def main(unused_argv):
     print(eval_results)
 
     # Do prediction on test data
-    predict_data = util.load_test_data(tiling=TILING)
-
     predict_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"x": predict_data},
         num_epochs=1,
@@ -168,14 +194,13 @@ def main(unused_argv):
     offset = 1444
 
     for i in range(1, constants.N_TEST_SAMPLES + 1):
-        img = util.label_to_img_inverse(608, 608, 16,  16, res[(i - 1) * offset:i * offset])
+        img = util.label_to_img_inverse(608, 608, 16, 16, res[(i - 1) * offset:i * offset])
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i - 1])
 
     # Predictions Train
-    predict_data, _ = util.load_train_data(tiling=True)
     predict_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={"x": predict_data},
+        x={"x": train_data},
         num_epochs=1,
         shuffle=False)
 
@@ -190,21 +215,5 @@ def main(unused_argv):
         Image.fromarray(img).save('predictions_train/{:03}.png'.format(i))
 
 
-
 if __name__ == "__main__":
-    # TODO: Log some advanced metrics interesting for the report maybe?
-    # run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-    # run_metadata = tf.RunMetadata()
-    # with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
-    #     file_writer = tf.summary.FileWriter('<path>', sess.graph)
-    #
-    #     for (run_iteration...)
-    #         ... = sess.run(....,
-    #                        options=run_options,
-    #                        run_metadata=run_metadata
-    #                        )
-    #
-    #         file_writer.add_run_metadata(
-    #             run_metadata, "run%d" % (run_iteration,), run_iteration)
-
     tf.app.run()

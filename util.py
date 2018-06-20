@@ -5,6 +5,52 @@ import errno
 import constants
 
 '''
+Utility large patches
+'''
+
+
+def crete_patches_large(data, patch_size, stride, padding, is_mask=False):
+    num_imgs = data.shape[0]
+    img_patches = []
+
+    for i in range(num_imgs):
+        img_patches.append(_crop_patches_large(data[i], patch_size, patch_size, stride, padding, is_mask))
+
+    img_patches = numpy.asarray(img_patches)
+    if is_mask:
+        data = img_patches.reshape(-1, img_patches.shape[2], img_patches.shape[3])
+        img_patches = numpy.asarray([_value_to_class(numpy.mean(data[i])) for i in range(len(data))])
+        img_patches = img_patches.astype(numpy.float32)
+    else:
+        img_patches = img_patches.reshape(-1, img_patches.shape[2], img_patches.shape[3], img_patches.shape[4])
+    return img_patches
+
+
+def _crop_patches_large(img, w, h, stride, padding, is_mask, mode='reflect'):
+    img_patches = []
+    img_width = img.shape[0]
+    img_height = img.shape[1]
+
+    if is_mask:
+        # mask
+        img = numpy.lib.pad(img, ((padding, padding), (padding, padding)), mode)
+        for i in range(padding, img_height + padding, stride):
+            for j in range(padding, img_width + padding, stride):
+                im_patch = img[j - padding:j + w + padding, i - padding:i + h + padding]
+                img_patches.append(im_patch)
+    else:
+        # img
+        img = numpy.lib.pad(img, ((padding, padding), (padding, padding), (0, 0)), mode)
+        for i in range(padding, img_height + padding, stride):
+            for j in range(padding, img_width + padding, stride):
+                im_patch = img[j - padding:j + w + padding, i - padding:i + h + padding, :]
+                img_patches.append(im_patch)
+
+
+    return img_patches
+
+
+'''
 Pure utility funcitons
 '''
 
