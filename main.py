@@ -36,78 +36,72 @@ def cnn_model_fn(features, labels, mode):
         input_layer = tf.map_fn(flip_lr, input_layer)
 
         # BRIGHTNESS
-        bright = lambda x: tf.image.random_brightness(x, max_delta=0.1)
-        input_layer = tf.map_fn(bright, input_layer)
+        # bright = lambda x: tf.image.random_brightness(x, max_delta=0.00005)
+        # input_layer = tf.map_fn(bright, input_layer)
 
         # CONTRAST
-        contrast = lambda x: tf.image.random_contrast(x, lower=0.1, upper=0.15)
+        contrast = lambda x: tf.image.random_contrast(x, lower=0.98, upper=1.2)
         input_layer = tf.map_fn(contrast, input_layer)
 
         # HUE
-        hue = lambda x: tf.image.random_hue(x, max_delta=0.1)
-        input_layer = tf.map_fn(hue, input_layer)
+        # hue = lambda x: tf.image.random_hue(x, max_delta=0.1)
+        # input_layer = tf.map_fn(hue, input_layer)
 
-        # SATURATION
-        satur = lambda x: tf.image.random_saturation(x, lower=0.1, upper=0.15)
-        input_layer = tf.map_fn(satur, input_layer)
+        # # SATURATION
+        # satur = lambda x: tf.image.random_saturation(x, lower=0.1, upper=0.15)
+        # input_layer = tf.map_fn(satur, input_layer)
 
-    # Model Port
+        tf.summary.image('Augmentation', input_layer, max_outputs=16)
 
-    # Convolutional Layer #1
-    # Computes 32 features using a 5x5 filter with ReLU activation.
-    # Padding is added to preserve width and height.
-    # Input Tensor Shape: [batch_size, 16, 16, 1]
-    # Output Tensor Shape: [batch_size, 16, 16, 32]
+    # Model
     conv1 = tf.layers.conv2d(
         inputs=input_layer,
-        filters=32,
-        kernel_size=[5, 5],
-        padding="same",
-        activation=tf.nn.relu)
-
-    # Pooling Layer #1
-    # First max pooling layer with a 2x2 filter and stride of 2
-    # Input Tensor Shape: [batch_size, 16, 16, 32]
-    # Output Tensor Shape: [batch_size, 8, 8, 32]
-    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
-
-    # Convolutional Layer #2
-    # Computes 64 features using a 5x5 filter.
-    # Padding is added to preserve width and height.
-    # Input Tensor Shape: [batch_size, 8, 8, 32]
-    # Output Tensor Shape: [batch_size, 8, 8, 64]
-    conv2 = tf.layers.conv2d(
-        inputs=pool1,
         filters=64,
         kernel_size=[5, 5],
         padding="same",
         activation=tf.nn.relu)
 
-    # Pooling Layer #2
-    # Second max pooling layer with a 2x2 filter and stride of 2
-    # Input Tensor Shape: [batch_size, 8, 8, 64]
-    # Output Tensor Shape: [batch_size, 4, 4, 64]
+    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+
+    conv2 = tf.layers.conv2d(
+        inputs=pool1,
+        filters=128,
+        kernel_size=[3, 3],
+        padding="same",
+        activation=tf.nn.relu)
+
     pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
 
-    # Flatten tensor into a batch of vectors
-    # Input Tensor Shape: [batch_size, 4, 4, 64]
-    # Output Tensor Shape: [batch_size, 4 * 4 * 64]
-    pool_shape = pool2.get_shape().as_list()
-    pool2_flat = tf.reshape(pool2, [-1, pool_shape[1] * pool_shape[2] * pool_shape[3]])
+    conv3 = tf.layers.conv2d(
+        inputs=pool2,
+        filters=256,
+        kernel_size=[3, 3],
+        padding="same",
+        activation=tf.nn.relu)
 
-    # Dense Layer
-    # Densely connected layer with 1024 neurons
-    # Input Tensor Shape: [batch_size, 4 * 4 * 64]
-    # Output Tensor Shape: [batch_size, 512]
-    dense = tf.layers.dense(inputs=pool2_flat, units=512, activation=tf.nn.relu)
+    pool3 = tf.layers.max_pooling2d(inputs=conv3, pool_size=[2, 2], strides=2)
+
+    conv4 = tf.layers.conv2d(
+        inputs=pool3,
+        filters=256,
+        kernel_size=[3, 3],
+        padding="same",
+        activation=tf.nn.relu)
+
+    pool4 = tf.layers.max_pooling2d(inputs=conv4, pool_size=[2, 2], strides=2)
+
+    # flatten
+    pool_shape = pool4.get_shape().as_list()
+    pool4_flat = tf.reshape(pool4, [-1, pool_shape[1] * pool_shape[2] * pool_shape[3]])
+
+    # FC 2048 neurons
+    dense = tf.layers.dense(inputs=pool4_flat, units=2048, activation=tf.nn.relu)
 
     # Add dropout operation; 0.6 probability that element will be kept
     dropout = tf.layers.dropout(
         inputs=dense, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
 
     # Logits layer
-    # Input Tensor Shape: [batch_size, 512]
-    # Output Tensor Shape: [batch_size, 2]
     logits = tf.layers.dense(inputs=dropout, units=2)
 
     predictions = {
@@ -147,12 +141,9 @@ def main(unused_argv):
     predict_data = util.load_test_data(tiling=False)
     # expansion
     train_data = util.crete_patches_large(train_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=False)
-
     train_labels = util.crete_patches_large(train_labels, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=True)
+    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING,is_mask=False)
     train_labels = util.one_hot_to_num(train_labels)
-
-    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING,
-                                            is_mask=False)
 
     # Create the Estimator
     road_estimator = tf.estimator.Estimator(
