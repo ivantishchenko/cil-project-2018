@@ -9,10 +9,7 @@ import util
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-weight_decay = 1e-4
-growth_rate = 12
-depth = 100
-compression = 0.5
+weight_decay = 0.0001
 
 
 def cnn_model_fn(features, labels, mode):
@@ -56,70 +53,98 @@ def cnn_model_fn(features, labels, mode):
 
         tf.summary.image('Augmentation', input_layer, max_outputs=16)
 
-    # DenseNet
-    n_blocks = (depth - 4) // 6
-    n_channels = growth_rate * 2
-
-    def dense_layer(x):
-        return tf.layers.dense(x, units=2,
-                               activation=tf.nn.softmax,
+    def dense_layer(x, units, name):
+        return tf.layers.dense(x, units=units,
                                kernel_initializer=tf.keras.initializers.he_normal(),
-                               kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay))
-
-    def bottleneck(x):
-        channels = growth_rate * 4
-        x = bn_relu(x)
-        x = conv(x, channels, (1, 1))
-        x = bn_relu(x)
-        x = conv(x, growth_rate, (3, 3))
-        return x
-
-    def transition(x, in_channels):
-        out_channels = int(in_channels * compression)
-        x = bn_relu(x)
-        x = conv(x, out_channels, (1, 1))
-        x = tf.layers.average_pooling2d(x, (2, 2), strides=(2, 2))
-        return x, out_channels
-
-    def dense_block(x, blocks, n_channels):
-        concat = x
-        for i in range(blocks):
-            x = bottleneck(concat)
-            concat = tf.concat([x, concat], axis=-1)
-            n_channels += growth_rate
-        return concat, n_channels
+                               kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+                               name=name)
 
     def bn_relu(x):
-        x = tf.layers.batch_normalization(x, momentum=0.9, epsilon=1e-5)
+        x = tf.layers.batch_normalization(x)
         x = tf.nn.relu(x)
         return x
 
-    def conv(x, out_filters, k_size):
+    def conv(x, out_filters, k_size, name):
         return tf.layers.conv2d(x, filters=out_filters,
                                 kernel_size=k_size,
                                 strides=(1, 1),
                                 padding='same',
                                 kernel_initializer=tf.keras.initializers.he_normal(),
                                 kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
-                                use_bias=False)
+                                name=name)
 
-    x = conv(input_layer, n_channels, (3, 3))
-    x, n_channels = dense_block(x, n_blocks, n_channels)
-    x, n_channels = transition(x, n_channels)
-    x, n_channels = dense_block(x, n_blocks, n_channels)
-    x, n_channels = transition(x, n_channels)
-    x, n_channels = dense_block(x, n_blocks, n_channels)
+    def pool(x, size, stride, name):
+        return tf.layers.max_pooling2d(x,
+                                       (size, size),
+                                       (stride, stride),
+                                       name=name)
+
+    # BLOCK 1
+    x = conv(input_layer, 64, 3, 'block1_conv1')
     x = bn_relu(x)
-    x = tf.layers.average_pooling2d(x, pool_size=(x.shape[1], x.shape[2]), strides=(1, 1), padding='valid')
+    x = conv(x, 64, 3, 'block1_conv2')
+    x = bn_relu(x)
+    x = pool(x, 2, 2, 'block1_pool')
 
+    # BLOCK 2
+    x = conv(x, 128, 3, 'block2_conv1')
+    x = bn_relu(x)
+    x = conv(x, 128, 3, 'block2_conv2')
+    x = bn_relu(x)
+    x = pool(x, 2, 2, 'block2_pool')
+
+    # BLOCK 3
+    x = conv(x, 256, 3, 'block3_conv1')
+    x = bn_relu(x)
+    x = conv(x, 256, 3, 'block3_conv2')
+    x = bn_relu(x)
+    x = conv(x, 256, 3, 'block3_conv3')
+    x = bn_relu(x)
+    x = conv(x, 256, 3, 'block3_conv4')
+    x = bn_relu(x)
+    x = pool(x, 2, 2, 'block3_pool')
+
+    # BLOCK 4
+    x = conv(x, 512, 3, 'block4_conv1')
+    x = bn_relu(x)
+    x = conv(x, 512, 3, 'block4_conv2')
+    x = bn_relu(x)
+    x = conv(x, 512, 3, 'block4_conv3')
+    x = bn_relu(x)
+    x = conv(x, 512, 3, 'block4_conv4')
+    x = bn_relu(x)
+    x = pool(x, 2, 2, 'block4_pool')
+
+    # BLOCK 5
+    x = conv(x, 512, 3, 'block5_conv1')
+    x = bn_relu(x)
+    x = conv(x, 512, 3, 'block5_conv2')
+    x = bn_relu(x)
+    x = conv(x, 512, 3, 'block5_conv3')
+    x = bn_relu(x)
+    x = conv(x, 512, 3, 'block5_conv4')
+    x = bn_relu(x)
+    x = pool(x, 2, 2, 'block5_pool')
+
+    # FC Layer
     x_shape = x.get_shape().as_list()
-    x_flat = tf.reshape(x, [-1, x_shape[1] * x_shape[2] * x_shape[3]])
-    logits = dense_layer(x_flat)
+    x = tf.reshape(x, [-1, x_shape[1] * x_shape[2] * x_shape[3]])
+
+    x = dense_layer(x, 4096, 'fc1')
+    x = bn_relu(x)
+    x = tf.layers.dropout(inputs=x, rate=0.5, training=mode == tf.estimator.ModeKeys.TRAIN)
+
+    x = dense_layer(x, 4096, 'fc2')
+    x = bn_relu(x)
+    x = tf.layers.dropout(inputs=x, rate=0.5, training=mode == tf.estimator.ModeKeys.TRAIN)
+
+    logits = tf.layers.dense(inputs=x, units=2)
 
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
         "classes": tf.argmax(input=logits, axis=1),
-        "probabilities": logits
+        # Cann add `softmax_tensor` to the graph. It is used for PREDICT and by the `logging_hook`.
+        "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
     }
 
     if mode == tf.estimator.ModeKeys.PREDICT:
