@@ -40,7 +40,7 @@ def cnn_model_fn(features, labels, mode):
         # input_layer = tf.map_fn(bright, input_layer)
 
         # CONTRAST
-        contrast = lambda x: tf.image.random_contrast(x, lower=0.98, upper=1.2)
+        contrast = lambda x: tf.image.random_contrast(x, lower=0.7, upper=1.1)
         input_layer = tf.map_fn(contrast, input_layer)
 
         # HUE
@@ -137,13 +137,13 @@ def cnn_model_fn(features, labels, mode):
 
 def main(unused_argv):
     # load provided images
-    train_data, train_labels = util.load_train_data(tiling=False)
+    train_data = util.load_train_img(tiling=False)
+    train_labels = util.load_train_lbl(tiling=True)
     predict_data = util.load_test_data(tiling=False)
+    train_labels = util.one_hot_to_num(train_labels)
     # expansion
     train_data = util.crete_patches_large(train_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=False)
-    train_labels = util.crete_patches_large(train_labels, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=True)
-    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING,is_mask=False)
-    train_labels = util.one_hot_to_num(train_labels)
+    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=False)
 
     # Create the Estimator
     road_estimator = tf.estimator.Estimator(

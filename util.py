@@ -106,16 +106,22 @@ TRAIN DATA
 '''
 
 
-def load_train_data(tiling=True):
+def load_train_lbl(tiling=True):
     data_dir = 'data/training/'
-    train_data_filename = data_dir + 'images/'
     train_labels_filename = data_dir + 'groundtruth/'
 
     # Extract it into numpy arrays.
-    train_data = _extract_data(train_data_filename, constants.N_IMAGES, tiling)
     train_labels = _extract_labels(train_labels_filename, constants.N_IMAGES, tiling)
-    return train_data, train_labels
+    return train_labels
 
+
+def load_train_img(tiling=True):
+    data_dir = 'data/training/'
+    train_data_filename = data_dir + 'images/'
+
+    # Extract it into numpy arrays.
+    train_data = _extract_data(train_data_filename, constants.N_IMAGES, tiling)
+    return train_data
 
 '''
 TEST DATA

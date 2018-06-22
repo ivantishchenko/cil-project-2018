@@ -7,7 +7,7 @@ import util
 ia.seed(33)
 PIXEL_DEPTH = 255
 
-train_data, train_label = util.load_train_data(tiling=False)
+train_data, train_label = util.load_train_img(tiling=False)
 
 
 def img_float_to_uint8(img):
