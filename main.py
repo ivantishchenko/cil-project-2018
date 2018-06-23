@@ -9,8 +9,6 @@ import util
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
-TILING = True  # Use 16x16 tiles (True) or feed in image directly to network (False)
-
 
 def cnn_model_fn(features, labels, mode):
     """
@@ -53,56 +51,66 @@ def cnn_model_fn(features, labels, mode):
 
         tf.summary.image('Augmentation', input_layer, max_outputs=16)
 
-    # Model
-    conv1 = tf.layers.conv2d(
-        inputs=input_layer,
-        filters=64,
-        kernel_size=[5, 5],
-        padding="same",
-        activation=tf.nn.relu)
+    def conv(x, filters, kernel, name):
+        return tf.layers.conv2d(inputs=x,
+                                filters=filters,
+                                kernel_size=[kernel, kernel],
+                                padding="same",
+                                activation=tf.nn.relu,
+                                name=name)
 
-    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+    def pool(x, pool, stride, name):
+        return tf.layers.max_pooling2d(inputs=x,
+                                       pool_size=[pool, pool],
+                                       strides=stride,
+                                       name=name)
 
-    conv2 = tf.layers.conv2d(
-        inputs=pool1,
-        filters=128,
-        kernel_size=[3, 3],
-        padding="same",
-        activation=tf.nn.relu)
+    # VGG
 
-    pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+    # BLOCK 1
+    x = conv(input_layer, 64, 3, 'block1_conv1')
+    x = conv(x, 64, 3, 'block1_conv2')
+    x = pool(x, 2, 2, 'block1_pool')
 
-    conv3 = tf.layers.conv2d(
-        inputs=pool2,
-        filters=256,
-        kernel_size=[3, 3],
-        padding="same",
-        activation=tf.nn.relu)
+    # BLOCK 2
+    x = conv(x, 128, 3, 'block2_conv1')
+    x = conv(x, 128, 3, 'block2_conv2')
+    x = pool(x, 2, 2, 'block2_pool')
 
-    pool3 = tf.layers.max_pooling2d(inputs=conv3, pool_size=[2, 2], strides=2)
+    # BLOCK 3
+    x = conv(x, 256, 3, 'block3_conv1')
+    x = conv(x, 256, 3, 'block3_conv2')
+    x = conv(x, 256, 3, 'block3_conv3')
+    x = conv(x, 256, 3, 'block3_conv4')
+    x = pool(x, 2, 2, 'block3_pool')
 
-    conv4 = tf.layers.conv2d(
-        inputs=pool3,
-        filters=256,
-        kernel_size=[3, 3],
-        padding="same",
-        activation=tf.nn.relu)
+    # BLOCK 4
+    x = conv(x, 512, 3, 'block4_conv1')
+    x = conv(x, 512, 3, 'block4_conv2')
+    x = conv(x, 512, 3, 'block4_conv3')
+    x = conv(x, 512, 3, 'block4_conv4')
+    x = pool(x, 2, 2, 'block4_pool')
 
-    pool4 = tf.layers.max_pooling2d(inputs=conv4, pool_size=[2, 2], strides=2)
+    # BLOCK 5
+    x = conv(x, 512, 3, 'block5_conv1')
+    x = conv(x, 512, 3, 'block5_conv2')
+    x = conv(x, 512, 3, 'block5_conv3')
+    x = conv(x, 512, 3, 'block5_conv4')
+    x = pool(x, 2, 2, 'block5_pool')
 
     # flatten
-    pool_shape = pool4.get_shape().as_list()
-    pool4_flat = tf.reshape(pool4, [-1, pool_shape[1] * pool_shape[2] * pool_shape[3]])
+    x_shape = x.get_shape().as_list()
+    x_flat = tf.reshape(x, [-1, x_shape[1] * x_shape[2] * x_shape[3]])
 
     # FC 2048 neurons
-    dense = tf.layers.dense(inputs=pool4_flat, units=2048, activation=tf.nn.relu)
+    x = tf.layers.dense(inputs=x_flat, units=4096, activation=tf.nn.relu, name='fc1')
+    x = tf.layers.dropout(inputs=x, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
 
-    # Add dropout operation; 0.6 probability that element will be kept
-    dropout = tf.layers.dropout(
-        inputs=dense, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
+    x = tf.layers.dense(inputs=x, units=4096, activation=tf.nn.relu, name='fc2')
+    x = tf.layers.dropout(inputs=x, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
 
     # Logits layer
-    logits = tf.layers.dense(inputs=dropout, units=2)
+    logits = tf.layers.dense(inputs=x, units=2)
 
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
@@ -143,7 +151,8 @@ def main(unused_argv):
     train_labels = util.one_hot_to_num(train_labels)
     # expansion
     train_data = util.crete_patches_large(train_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=False)
-    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=False)
+    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING,
+                                            is_mask=False)
 
     # Create the Estimator
     road_estimator = tf.estimator.Estimator(
