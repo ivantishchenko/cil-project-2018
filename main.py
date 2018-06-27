@@ -129,11 +129,11 @@ def cnn_model_fn(features, labels, mode):
     x = tf.keras.layers.UpSampling2D(size=(2, 2), data_format="channels_first")(x)
     x = conv(x, 64, 3, 'block5_deconv1')
     out = tf.layers.conv2d(inputs=x,
-                         filters=2,
-                         kernel_size=1,
-                         padding='same',
-                         name='block5_deconv2',
-                         data_format='channels_first')
+                           filters=2,
+                           kernel_size=1,
+                           padding='same',
+                           name='block5_deconv2',
+                           data_format='channels_first')
 
     pass
     predictions = {
@@ -210,17 +210,17 @@ def main(unused_argv):
     util.create_prediction_dir("predictions_test/")
     file_names = util.get_file_names()
 
+    predict_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={"x": predict_data},
+        num_epochs=1,
+        shuffle=False,
+        batch_size=constants.BATCH_SIZE)
+
+    predictions = road_estimator.predict(input_fn=predict_input_fn)
+    res = [p['classes'] for p in predictions]
+
     for i in range(constants.N_TEST_SAMPLES):
-        sample = np.expand_dims(predict_data[i], axis=0)
-        predict_input_fn = tf.estimator.inputs.numpy_input_fn(
-            x={"x": sample},
-            num_epochs=1,
-            shuffle=False)
-
-        predictions = road_estimator.predict(input_fn=predict_input_fn)
-        res = [p['classes'] for p in predictions]
-
-        img = res[0]
+        img = res[i]
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i])
 
