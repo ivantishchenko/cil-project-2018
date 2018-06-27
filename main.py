@@ -6,6 +6,7 @@ from PIL import Image
 import constants
 import tensorflow as tf
 import util
+import numpy as np
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -49,7 +50,11 @@ def cnn_model_fn(features, labels, mode):
         # satur = lambda x: tf.image.random_saturation(x, lower=0.1, upper=0.15)
         # input_layer = tf.map_fn(satur, input_layer)
 
-        tf.summary.image('Augmentation', input_layer, max_outputs=16)
+        tf.summary.image('Augmentation', input_layer, max_outputs=4)
+
+    # Channel first now
+
+    input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
 
     def conv(x, filters, kernel, name):
         return tf.layers.conv2d(inputs=x,
@@ -57,16 +62,17 @@ def cnn_model_fn(features, labels, mode):
                                 kernel_size=[kernel, kernel],
                                 padding="same",
                                 activation=tf.nn.relu,
-                                name=name)
+                                name=name,
+                                data_format='channels_first')
 
     def pool(x, pool, stride, name):
         return tf.layers.max_pooling2d(inputs=x,
                                        pool_size=[pool, pool],
                                        strides=stride,
-                                       name=name)
+                                       name=name,
+                                       data_format='channels_first')
 
-    # VGG
-
+    # ENCODE
     # BLOCK 1
     x = conv(input_layer, 64, 3, 'block1_conv1')
     x = conv(x, 64, 3, 'block1_conv2')
@@ -81,50 +87,67 @@ def cnn_model_fn(features, labels, mode):
     x = conv(x, 256, 3, 'block3_conv1')
     x = conv(x, 256, 3, 'block3_conv2')
     x = conv(x, 256, 3, 'block3_conv3')
-    x = conv(x, 256, 3, 'block3_conv4')
     x = pool(x, 2, 2, 'block3_pool')
 
     # BLOCK 4
     x = conv(x, 512, 3, 'block4_conv1')
     x = conv(x, 512, 3, 'block4_conv2')
     x = conv(x, 512, 3, 'block4_conv3')
-    x = conv(x, 512, 3, 'block4_conv4')
     x = pool(x, 2, 2, 'block4_pool')
 
     # BLOCK 5
     x = conv(x, 512, 3, 'block5_conv1')
     x = conv(x, 512, 3, 'block5_conv2')
     x = conv(x, 512, 3, 'block5_conv3')
-    x = conv(x, 512, 3, 'block5_conv4')
     x = pool(x, 2, 2, 'block5_pool')
 
-    # flatten
-    x_shape = x.get_shape().as_list()
-    x_flat = tf.reshape(x, [-1, x_shape[1] * x_shape[2] * x_shape[3]])
+    # DECODE
+    # BLOCK 1
+    x = tf.keras.layers.UpSampling2D(size=(2, 2), data_format="channels_first")(x)
+    x = conv(x, 512, 3, 'block1_deconv1')
+    x = conv(x, 512, 3, 'block1_deconv2')
+    x = conv(x, 512, 3, 'block1_deconv3')
 
-    # FC 2048 neurons
-    x = tf.layers.dense(inputs=x_flat, units=4096, activation=tf.nn.relu, name='fc1')
-    x = tf.layers.dropout(inputs=x, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
+    # BLOCK 2
+    x = tf.keras.layers.UpSampling2D(size=(2, 2), data_format="channels_first")(x)
+    x = conv(x, 512, 3, 'block2_deconv1')
+    x = conv(x, 512, 3, 'block2_deconv2')
+    x = conv(x, 256, 3, 'block2_deconv3')
 
-    x = tf.layers.dense(inputs=x, units=4096, activation=tf.nn.relu, name='fc2')
-    x = tf.layers.dropout(inputs=x, rate=0.4, training=mode == tf.estimator.ModeKeys.TRAIN)
+    # BLOCK 3
+    x = tf.keras.layers.UpSampling2D(size=(2, 2), data_format="channels_first")(x)
+    x = conv(x, 256, 3, 'block3_deconv1')
+    x = conv(x, 256, 3, 'block3_deconv2')
+    x = conv(x, 128, 3, 'block3_deconv3')
 
-    # Logits layer
-    logits = tf.layers.dense(inputs=x, units=2)
+    # BLOCK 4
+    x = tf.keras.layers.UpSampling2D(size=(2, 2), data_format="channels_first")(x)
+    x = conv(x, 128, 3, 'block4_deconv1')
+    x = conv(x, 64, 3, 'block4_deconv2')
+
+    # BLOCK 5
+    x = tf.keras.layers.UpSampling2D(size=(2, 2), data_format="channels_first")(x)
+    x = conv(x, 64, 3, 'block5_deconv1')
+    out = tf.layers.conv2d(inputs=x,
+                         filters=2,
+                         kernel_size=1,
+                         padding='same',
+                         name='block5_deconv2',
+                         data_format='channels_first')
 
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
-        "classes": tf.argmax(input=logits, axis=1),
-        # Add `softmax_tensor` to the graph. It is used for PREDICT and by the
-        # `logging_hook`.
-        "probabilities": tf.nn.softmax(logits, name="softmax_tensor")
+        "classes": out
     }
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
+    reshaped_logits = tf.reshape(out, [-1, 2])
+    reshaped_labels = tf.reshape(labels, [-1])
+
     # Calculate Loss (for both TRAIN and EVAL modes)
-    loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
+    loss = tf.losses.sparse_softmax_cross_entropy(labels=reshaped_labels, logits=reshaped_logits)
 
     # Configure the Training Op (for TRAIN mode)
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -144,15 +167,21 @@ def cnn_model_fn(features, labels, mode):
 
 
 def main(unused_argv):
-    # load provided images
+    # load images segNEt
     train_data = util.load_train_img(tiling=False)
-    train_labels = util.load_train_lbl(tiling=True)
+    train_labels = util.load_train_lbl(tiling=False)
     predict_data = util.load_test_data(tiling=False)
-    train_labels = util.one_hot_to_num(train_labels)
-    # expansion
-    train_data = util.crete_patches_large(train_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING, is_mask=False)
-    predict_data = util.crete_patches_large(predict_data, constants.IMG_PATCH_SIZE, 16, constants.PADDING,
-                                            is_mask=False)
+
+    train_labels = np.around(train_labels)
+    train_labels = train_labels.astype('int32')
+
+    # EXPAND to 608 x 608
+    train_data = np.pad(train_data, ((0, 0), (104, 104), (104, 104), (0, 0)), 'reflect')
+    train_labels = np.pad(train_labels, ((0, 0), (104, 104), (104, 104)), 'reflect')
+
+    # Channel first
+    # train_data = np.rollaxis(train_data, -1, 1)
+    # predict_data = np.rollaxis(predict_data, -1, 1)
 
     # Create the Estimator
     road_estimator = tf.estimator.Estimator(
@@ -169,51 +198,6 @@ def main(unused_argv):
     road_estimator.train(
         input_fn=train_input_fn,
         steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
-
-    # Evaluate the model and print results
-    eval_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={"x": train_data},
-        y=train_labels,
-        num_epochs=1,
-        shuffle=False)
-
-    eval_results = road_estimator.evaluate(input_fn=eval_input_fn)
-    print(eval_results)
-
-    # Do prediction on test data
-    predict_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={"x": predict_data},
-        num_epochs=1,
-        shuffle=False)
-
-    predictions = road_estimator.predict(input_fn=predict_input_fn)
-    res = [p['probabilities'] for p in predictions]
-
-    file_names = util.get_file_names()
-    util.create_prediction_dir("predictions_test/")
-    offset = 1444
-
-    for i in range(1, constants.N_TEST_SAMPLES + 1):
-        img = util.label_to_img_inverse(608, 608, 16, 16, res[(i - 1) * offset:i * offset])
-        img = util.img_float_to_uint8(img)
-        Image.fromarray(img).save('predictions_test/' + file_names[i - 1])
-
-    # Predictions Train
-    predict_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={"x": train_data},
-        num_epochs=1,
-        shuffle=False)
-
-    predictions = road_estimator.predict(input_fn=predict_input_fn)
-
-    res = [p['probabilities'] for p in predictions]
-    util.create_prediction_dir("predictions_train/")
-    for i in range(1, 101):
-        img = util.label_to_img_inverse(400, 400, constants.IMG_PATCH_SIZE, constants.IMG_PATCH_SIZE,
-                                        res[(i - 1) * 625:i * 625])
-        img = util.img_float_to_uint8(img)
-        Image.fromarray(img).save('predictions_train/{:03}.png'.format(i))
-
 
 if __name__ == "__main__":
     tf.app.run()
