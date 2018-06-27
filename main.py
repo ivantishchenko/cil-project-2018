@@ -198,23 +198,30 @@ def main(unused_argv):
 
     road_estimator.train(
         input_fn=train_input_fn,
-        steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
+        max_steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
+
+    # road_estimator.train(
+    #     input_fn=train_input_fn,
+    #     max_steps=2)
 
     # Predicions
     # Do prediction on test data
-    predict_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={"x": predict_data},
-        num_epochs=1,
-        shuffle=False)
-
-    predictions = road_estimator.predict(input_fn=predict_input_fn)
-    res = [p['probabilities'] for p in predictions]
 
     util.create_prediction_dir("predictions_test/")
     file_names = util.get_file_names()
 
     for i in range(constants.N_TEST_SAMPLES):
-        img = util.img_float_to_uint8(res[i])
+        sample = np.expand_dims(predict_data[i], axis=0)
+        predict_input_fn = tf.estimator.inputs.numpy_input_fn(
+            x={"x": sample},
+            num_epochs=1,
+            shuffle=False)
+
+        predictions = road_estimator.predict(input_fn=predict_input_fn)
+        res = [p['classes'] for p in predictions]
+
+        img = res[0]
+        img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i])
 
 

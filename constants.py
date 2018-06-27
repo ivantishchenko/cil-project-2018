@@ -1,4 +1,4 @@
-N_SAMPLES = 62500  # 16 x 16 patches on 100 400 x 400 images
+N_SAMPLES = 100  # 16 x 16 patches on 100 400 x 400 images
 BATCH_SIZE = 1
 NUM_EPOCH = 1  #
 IMG_PATCH_SIZE = 16
