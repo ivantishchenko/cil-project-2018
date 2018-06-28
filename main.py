@@ -56,7 +56,8 @@ def cnn_model_fn(features, labels, mode):
         tf.summary.image('Augmentation', input_layer, max_outputs=4)
 
     # Channel first now
-    input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
+    input_layer = tf.transpose(input_layer, [0, 3, 1, 2])
+    # input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
     # remove the meaningless channel axis after augmentation on maps
     labels = tf.squeeze(labels, axis=-1)
 
@@ -203,13 +204,13 @@ def main(unused_argv):
         num_epochs=None,
         shuffle=True)
 
-    # road_estimator.train(
-    #     input_fn=train_input_fn,
-    #     max_steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
-
     road_estimator.train(
         input_fn=train_input_fn,
-        max_steps=10)
+        max_steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
+
+    # road_estimator.train(
+    #     input_fn=train_input_fn,
+    #     max_steps=10)
 
     # Predicions
     # Do prediction on test data
