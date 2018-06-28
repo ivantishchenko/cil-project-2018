@@ -56,10 +56,9 @@ def cnn_model_fn(features, labels, mode):
         tf.summary.image('Augmentation', input_layer, max_outputs=4)
 
     # Channel first now
-    # input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
-
+    input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
     # remove the meaningless channel axis after augmentation on maps
-    labels = tf.squeeze(labels, axis=1)
+    labels = tf.squeeze(labels, axis=-1)
 
     def conv(x, filters, kernel, name):
         return tf.layers.conv2d(inputs=x,
@@ -186,11 +185,11 @@ def main(unused_argv):
     train_labels = np.pad(train_labels, ((0, 0), (104, 104), (104, 104)), 'reflect')
 
     # Channel first
-    train_data = np.rollaxis(train_data, -1, 1)
-    predict_data = np.rollaxis(predict_data, -1, 1)
+    # train_data = np.rollaxis(train_data, -1, 1)
+    # predict_data = np.rollaxis(predict_data, -1, 1)
 
     # neeed to expand the channel axis for the image augmentation
-    train_labels = np.expand_dims(train_labels, 1)
+    train_labels = np.expand_dims(train_labels, 3)
 
     # Create the Estimator
     road_estimator = tf.estimator.Estimator(
@@ -204,13 +203,13 @@ def main(unused_argv):
         num_epochs=None,
         shuffle=True)
 
-    road_estimator.train(
-        input_fn=train_input_fn,
-        max_steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
-
     # road_estimator.train(
     #     input_fn=train_input_fn,
-    #     max_steps=10)
+    #     max_steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
+
+    road_estimator.train(
+        input_fn=train_input_fn,
+        max_steps=10)
 
     # Predicions
     # Do prediction on test data
