@@ -54,12 +54,13 @@ def cnn_model_fn(features, labels, mode):
         # input_layer = tf.map_fn(satur, input_layer)
 
         tf.summary.image('Augmentation', input_layer, max_outputs=4)
+        labels = tf.squeeze(labels, axis=-1)
 
     # Channel first now
     input_layer = tf.transpose(input_layer, [0, 3, 1, 2])
     # input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
     # remove the meaningless channel axis after augmentation on maps
-    labels = tf.squeeze(labels, axis=-1)
+
 
     def conv(x, filters, kernel, name):
         return tf.layers.conv2d(inputs=x,
