@@ -3,6 +3,7 @@
 
 data/training
 data/test_images
+expand_data/
 logs
 predictions_test/
 predictions_train/

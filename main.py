@@ -25,14 +25,17 @@ def cnn_model_fn(features, labels, mode):
     input_layer = features["x"]
 
     # Image augmentation
+    # WARNING: Have to flip the maps as well on the full images
     if mode == tf.estimator.ModeKeys.TRAIN:
         # FLIP UP DOWN
         flip_ud = lambda x: tf.image.random_flip_up_down(x)
         input_layer = tf.map_fn(flip_ud, input_layer)
+        labels = tf.map_fn(flip_ud, labels)
 
         # FLIP LEFT RIGHT
         flip_lr = lambda x: tf.image.flip_left_right(x)
         input_layer = tf.map_fn(flip_lr, input_layer)
+        labels = tf.map_fn(flip_lr, labels)
 
         # BRIGHTNESS
         # bright = lambda x: tf.image.random_brightness(x, max_delta=0.00005)
@@ -53,8 +56,9 @@ def cnn_model_fn(features, labels, mode):
         tf.summary.image('Augmentation', input_layer, max_outputs=4)
 
     # Channel first now
-
     input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
+    # remove the meaningless channel axis after augmentation on maps
+    labels = tf.squeeze(labels, axis=-1)
 
     def conv(x, filters, kernel, name):
         return tf.layers.conv2d(inputs=x,
@@ -184,6 +188,9 @@ def main(unused_argv):
     # train_data = np.rollaxis(train_data, -1, 1)
     # predict_data = np.rollaxis(predict_data, -1, 1)
 
+    # neeed to expand the channel axis for the image augmentation
+    train_labels = np.expand_dims(train_labels, 3)
+
     # Create the Estimator
     road_estimator = tf.estimator.Estimator(
         model_fn=cnn_model_fn, model_dir="outputs/road")
@@ -196,13 +203,13 @@ def main(unused_argv):
         num_epochs=None,
         shuffle=True)
 
-    road_estimator.train(
-        input_fn=train_input_fn,
-        max_steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
-
     # road_estimator.train(
     #     input_fn=train_input_fn,
-    #     max_steps=2)
+    #     max_steps=(constants.N_SAMPLES * constants.NUM_EPOCH) // constants.BATCH_SIZE)
+
+    road_estimator.train(
+        input_fn=train_input_fn,
+        max_steps=10)
 
     # Predicions
     # Do prediction on test data
@@ -224,6 +231,23 @@ def main(unused_argv):
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i])
 
+
+    # Do prediction on train data
+    util.create_prediction_dir("predictions_train/")
+
+    predict_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={"x": train_data},
+        num_epochs=1,
+        shuffle=False,
+        batch_size=constants.BATCH_SIZE)
+
+    predictions = road_estimator.predict(input_fn=predict_input_fn)
+    res = [p['classes'] for p in predictions]
+
+    for i in range(constants.N_SAMPLES):
+        img = res[i]
+        img = util.img_float_to_uint8(img)
+        Image.fromarray(img).save('predictions_train/satImage_{:03}.png'.format(i + 1))
 
 if __name__ == "__main__":
     tf.app.run()
