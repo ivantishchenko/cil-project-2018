@@ -46,7 +46,6 @@ def _crop_patches_large(img, w, h, stride, padding, is_mask, mode='reflect'):
                 im_patch = img[j - padding:j + w + padding, i - padding:i + h + padding, :]
                 img_patches.append(im_patch)
 
-
     return img_patches
 
 
@@ -68,7 +67,7 @@ def read_img(path):
 
 
 def create_prediction_dir(prediction_test_dir):
-    print("Running prediction on test set")
+    print("Running prediction")
     if not os.path.isdir(prediction_test_dir):
         os.mkdir(prediction_test_dir)
 
@@ -77,6 +76,18 @@ def img_float_to_uint8(img):
     rimg = img - numpy.min(img)
     rimg = (rimg / numpy.max(rimg) * constants.PIXEL_DEPTH).round().astype(numpy.uint8)
     return rimg
+
+
+def label_to_img_full(w, h, labels):
+    array_labels = numpy.zeros([w, h])
+    for i in range(h):
+        for j in range(w):
+            if labels[i][j][0] > 0.5:
+                l = 0
+            else:
+                l = 1
+            array_labels[i, j] = l
+    return array_labels
 
 
 def label_to_img_inverse(imgwidth, imgheight, w, h, labels):
@@ -122,6 +133,7 @@ def load_train_img(tiling=True):
     # Extract it into numpy arrays.
     train_data = _extract_data(train_data_filename, constants.N_IMAGES, tiling)
     return train_data
+
 
 '''
 TEST DATA

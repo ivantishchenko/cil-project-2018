@@ -10,6 +10,9 @@ import numpy as np
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
+NUM_CLASSES = 2
+IMG_SIZE = 608
+
 
 def cnn_model_fn(features, labels, mode):
     """
@@ -54,13 +57,11 @@ def cnn_model_fn(features, labels, mode):
         # input_layer = tf.map_fn(satur, input_layer)
 
         tf.summary.image('Augmentation', input_layer, max_outputs=4)
+        # remove the meaningless channel axis after augmentation on maps
         labels = tf.squeeze(labels, axis=-1)
 
     # Channel first now
     input_layer = tf.transpose(input_layer, [0, 3, 1, 2])
-    # input_layer = tf.reshape(input_layer, [-1, 3, input_layer.shape[1], input_layer.shape[2]])
-    # remove the meaningless channel axis after augmentation on maps
-
 
     def conv(x, filters, kernel, name):
         return tf.layers.conv2d(inputs=x,
@@ -134,27 +135,31 @@ def cnn_model_fn(features, labels, mode):
     # BLOCK 5
     x = tf.keras.layers.UpSampling2D(size=(2, 2), data_format="channels_first")(x)
     x = conv(x, 64, 3, 'block5_deconv1')
-    out = tf.layers.conv2d(inputs=x,
-                           filters=2,
-                           kernel_size=1,
-                           padding='same',
-                           name='block5_deconv2',
-                           data_format='channels_first')
+    x = tf.layers.conv2d(inputs=x,
+                         filters=NUM_CLASSES,
+                         kernel_size=1,
+                         padding='same',
+                         name='block5_deconv2',
+                         data_format='channels_first')
 
-    pass
+    logits = tf.transpose(x, perm=[0, 2, 3, 1])
+
+    # x = tf.reshape(x, [-1, x.shape[1], x.shape[2] * x.shape[3]])
+    # x = tf.transpose(x, perm=[0, 2, 1])
+    # logits = tf.nn.softmax(x, name='softmax')
+    # prediction = tf.reshape(x, [-1, IMG_SIZE, IMG_SIZE, NUM_CLASSES])
+
     predictions = {
         # Generate predictions (for PREDICT and EVAL mode)
-        "classes": tf.argmax(input=out, axis=1)
+        "classes": tf.nn.softmax(logits, name='softmax')
     }
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
-    reshaped_logits = tf.reshape(out, [-1, 2])
-    reshaped_labels = tf.reshape(labels, [-1])
-
+    # labels = tf.reshape(labels, [-1, labels.shape[1] * labels.shape[2]])
     # Calculate Loss (for both TRAIN and EVAL modes)
-    loss = tf.losses.sparse_softmax_cross_entropy(labels=reshaped_labels, logits=reshaped_logits)
+    loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
 
     # Configure the Training Op (for TRAIN mode)
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -174,7 +179,6 @@ def cnn_model_fn(features, labels, mode):
 
 
 def main(unused_argv):
-    # load images segNEt
     train_data = util.load_train_img(tiling=False)
     train_labels = util.load_train_lbl(tiling=False)
     predict_data = util.load_test_data(tiling=False)
@@ -215,7 +219,6 @@ def main(unused_argv):
 
     # Predicions
     # Do prediction on test data
-
     util.create_prediction_dir("predictions_test/")
     file_names = util.get_file_names()
 
@@ -229,10 +232,10 @@ def main(unused_argv):
     res = [p['classes'] for p in predictions]
 
     for i in range(constants.N_TEST_SAMPLES):
-        img = res[i]
+        labels = res[i]
+        img = util.label_to_img_full(IMG_SIZE, IMG_SIZE, labels)
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_test/' + file_names[i])
-
 
     # Do prediction on train data
     util.create_prediction_dir("predictions_train/")
@@ -247,9 +250,11 @@ def main(unused_argv):
     res = [p['classes'] for p in predictions]
 
     for i in range(constants.N_SAMPLES):
-        img = res[i]
+        labels = res[i]
+        img = util.label_to_img_full(IMG_SIZE, IMG_SIZE, labels)
         img = util.img_float_to_uint8(img)
         Image.fromarray(img).save('predictions_train/satImage_{:03}.png'.format(i + 1))
+
 
 if __name__ == "__main__":
     tf.app.run()
